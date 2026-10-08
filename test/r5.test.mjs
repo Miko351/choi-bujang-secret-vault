@@ -47,6 +47,10 @@ test('later builds remove static data, retain deployment metadata and reject sou
     for (const file of ['build-public.mjs', 'deployment-identity.mjs']) {
       await copyFile(new URL(`../scripts/${file}`, import.meta.url), join(directory, 'scripts', file));
     }
+    const sdkDirectory = join(directory, 'node_modules/@supabase/supabase-js/dist/umd');
+    await mkdir(sdkDirectory, { recursive: true });
+    await copyFile(new URL('../node_modules/@supabase/supabase-js/dist/umd/supabase.js', import.meta.url),
+      join(sdkDirectory, 'supabase.js'));
     await writeFile(join(directory, 'aleph.config.json'), JSON.stringify({ ...config, step: 2 }));
     await writeFile(join(directory, 'data.json'), JSON.stringify({
       notes: [], extra: 'SOURCE_ONLY_VALUE',
@@ -60,6 +64,7 @@ test('later builds remove static data, retain deployment metadata and reject sou
       await writeFile(join(directory, 'aleph.config.json'), JSON.stringify({ ...config, step }));
       await writeFile(output, JSON.stringify({ notes: [{ content: 'STALE_TEST_CONTENT' }] }));
       assert.equal(build().status, 0);
+      assert.ok((await readFile(join(directory, 'public/vendor/supabase.js'))).length > 0);
       await assert.rejects(readFile(output), { code: 'ENOENT' });
       const identity = JSON.parse(await readFile(join(directory, 'public/aleph.json'), 'utf8'));
       assert.equal(identity.step, step);
@@ -133,6 +138,34 @@ test('first attack check reads public data.json without credentials', async () =
     globalThis.fetch = async () => new Response('<html>not the data</html>', { status: 200 });
     const [failed] = await runAttackChecks(config);
     assert.match(failed.observed, /보이지 않음/u);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('third stage self-check reports HTTP denials honestly and never attempts a valid write', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  try {
+    globalThis.fetch = async (url, options) => {
+      calls.push({ url: new URL(url), options });
+      return new Response(null, { status: String(url).endsWith('/data.json') ? 404 : 401 });
+    };
+    const results = await runAttackChecks({ ...config, step: 3 });
+    assert.equal(calls.length, 5);
+    assert.equal(results.length, 6);
+    assert.match(results[0].observed, /HTTP 404/u);
+    for (const result of results.slice(1, 5)) assert.match(result.observed, /HTTP 401/u);
+    assert.match(results[5].observed, /미실행/u);
+    for (const { url, options } of calls.slice(1)) {
+      assert.equal(options.credentials, 'omit');
+      assert.equal(options.headers?.Authorization, undefined);
+      if (['POST', 'PUT'].includes(options.method)) assert.equal(options.body, '{}');
+      if (['PUT', 'DELETE'].includes(options.method)) assert.equal(url.pathname, '/api/notes/not-a-uuid');
+    }
+    globalThis.fetch = async url => new Response(null, { status: String(url).endsWith('/data.json') ? 404 : 503 });
+    const failed = await runAttackChecks({ ...config, step: 3 });
+    for (const result of failed.slice(1, 5)) assert.match(result.observed, /실패.*HTTP 503/u);
   } finally {
     globalThis.fetch = originalFetch;
   }

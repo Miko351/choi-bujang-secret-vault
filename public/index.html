@@ -16,43 +16,60 @@
     li { border: 1px solid #51667c; border-radius: 14px; padding: 17px 19px; background: #1a2a3d; }
     strong { display: block; font-size: 18px; margin-bottom: 5px; }
     li span { color: #bfd0e5; }
+    .auth { border: 1px solid #51667c; border-radius: 14px; padding: 20px; background: #1a2a3d; }
+    h2 { font-size: 21px; margin: 0 0 12px; }
+    .auth p { margin: 8px 0 16px; }
+    label { display: block; margin: 14px 0 6px; }
+    input, textarea { box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid #7f94ab; border-radius: 8px; background: #101a28; color: #ecf4ff; font: inherit; }
+    textarea { min-height: 140px; resize: vertical; }
+    .editor { margin-top: 24px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    .secondary { background: #bfd0e5; }
+    .danger { background: #ffe3e8; }
+    li span { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+    button { margin-top: 18px; padding: 12px 20px; border: 0; border-radius: 8px; background: #8ad8df; color: #101a28; font: inherit; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    :focus-visible { outline: 3px solid #ffe3a5; outline-offset: 3px; }
+    #auth-error { color: #ffe3e8; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <main>
-    <div class="eyebrow">BYTE BACK · 2단계</div>
+    <div class="eyebrow">BYTE BACK · 내 자료실</div>
     <h1>내 자료실</h1>
-    <p>자료를 코드 밖으로 옮깁니다.</p>
+    <p>로그인해 실습용 가상 메모를 관리합니다.</p>
     <div class="notice">이 자료실의 메모는 모두 실습용 가상 자료입니다.</div>
-    <ul id="notes" aria-live="polite"><li>메모를 불러오는 중입니다.</li></ul>
+    <section class="auth" aria-labelledby="auth-heading">
+      <h2 id="auth-heading">계정 로그인</h2>
+      <p id="auth-status" role="status" aria-live="polite">로그인 연결 확인 중</p>
+      <form id="login-form" aria-describedby="auth-error" aria-busy="true">
+        <label for="login-email">이메일</label>
+        <input id="login-email" name="email" type="email" autocomplete="username" required disabled>
+        <label for="login-password">비밀번호</label>
+        <input id="login-password" name="password" type="password" autocomplete="current-password" required disabled>
+        <button id="login-button" type="submit" disabled>로그인</button>
+      </form>
+      <button id="logout-button" type="button" hidden disabled>로그아웃</button>
+      <p id="auth-error" role="alert" hidden></p>
+    </section>
+    <section id="note-editor" class="auth editor" aria-labelledby="note-heading" hidden>
+      <h2 id="note-heading">가상 메모 추가</h2>
+      <form id="note-form" aria-describedby="note-status">
+        <label for="note-title">제목</label>
+        <input id="note-title" name="title" maxlength="200" required>
+        <label for="note-body">내용</label>
+        <textarea id="note-body" name="body" maxlength="10000" required></textarea>
+        <div class="actions">
+          <button id="note-save" type="submit">추가</button>
+          <button id="note-cancel" class="secondary" type="button" hidden>수정 취소</button>
+        </div>
+      </form>
+      <p id="note-status" role="status" aria-live="polite"></p>
+    </section>
+    <ul id="notes" aria-live="polite"><li>로그인 후 자료를 볼 수 있습니다.</li></ul>
   </main>
-  <script type="module">
-    const list = document.querySelector('#notes');
-    try {
-      const response = await fetch('/api/notes', { cache: 'no-store' });
-      if (!response.ok) throw new Error('메모를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.');
-      const data = await response.json();
-      if (!Array.isArray(data.notes)) throw new Error('자료 형식이 맞지 않습니다.');
-      if (data.notes.length === 0) {
-        const item = document.createElement('li');
-        item.textContent = '아직 메모가 없습니다.';
-        list.replaceChildren(item);
-      } else {
-        list.replaceChildren(...data.notes.map(note => {
-          const item = document.createElement('li');
-          const title = document.createElement('strong');
-          const content = document.createElement('span');
-          title.textContent = note.title;
-          content.textContent = note.content;
-          item.append(title, content);
-          return item;
-        }));
-      }
-    } catch (error) {
-      const item = document.createElement('li');
-      item.textContent = error.message;
-      list.replaceChildren(item);
-    }
-  </script>
+  <script src="/vendor/supabase.js"></script>
+  <script type="module" src="/auth-ui.js"></script>
 </body>
 </html>

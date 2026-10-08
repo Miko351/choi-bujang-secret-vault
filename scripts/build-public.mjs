@@ -29,6 +29,10 @@ if (config.step === 1) {
   }
   console.log('2단계 이후에는 public/data.json을 생성하지 않습니다.');
 }
+// Ship the pinned official browser SDK with the static site, without a CDN.
+await mkdir(resolve(root, 'public', 'vendor'), { recursive: true });
+await copyFile(resolve(root, 'node_modules', '@supabase', 'supabase-js', 'dist', 'umd', 'supabase.js'),
+  resolve(root, 'public', 'vendor', 'supabase.js'));
 if (!process.argv.includes('--local')) {
   const identity = deploymentIdentity(process.env, config);
   await writeFile(resolve(root, 'public', 'aleph.json'),

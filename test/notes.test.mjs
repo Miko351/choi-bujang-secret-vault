@@ -1,104 +1,261 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { runInNewContext } from 'node:vm';
+import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 import handler from '../api/notes.js';
+import config from '../aleph.config.json' with { type: 'json' };
 
 const fakeSecret = ['test', 'server', 'credential'].join('-');
-const notes = Array.from({ length: 4 }, (_, i) => ({ title: `TEST ${i}`, content: `BODY ${i}` }));
+const notes = Array.from({ length: 4 }, (_, i) => ({
+  id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`, title: `TEST ${i}`, body: `BODY ${i}`,
+}));
 
-async function invoke(method = 'GET') {
+async function invoke({ method = 'GET', authorization, url = '/api/notes', headers = {}, ...untrusted } = {}) {
   const result = { headers: {} };
-  await handler({ method }, {
+  await handler({ method, url, headers: { 'content-type': 'application/json', authorization, ...headers }, ...untrusted }, {
     setHeader: (name, value) => { result.headers[name.toLowerCase()] = value; },
     status: code => {
       result.status = code;
-      return { json: body => { result.body = body; } };
+      return { json: body => { result.body = body; }, end: () => {} };
     },
   });
   return result;
 }
 
-test('server queries only note fields with server credentials and never forwards errors or secrets', async () => {
-  const saved = { url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SECRET_KEY, fetch: globalThis.fetch };
+test('notes API uses the unchanged starter verifier before every note query', async t => {
+  const saved = {
+    url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SECRET_KEY,
+    fetch: globalThis.fetch, config: structuredClone(config),
+  };
   const logging = Object.fromEntries(['log', 'warn', 'error'].map(name => [name, console[name]]));
   const logs = [];
+  // Disposable signing material stays in memory; no real account or stored JWT.
+  const keys = await generateKeyPair('ES256');
+  const wrongKeys = await generateKeyPair('ES256');
+  const jwk = { ...await exportJWK(keys.publicKey), kid: 'training-key', alg: 'ES256', use: 'sig' };
+  const project = 'https://training.supabase.co';
+  const issuer = `${project}/auth/v1`;
+  const sub = '11111111-1111-4111-8111-111111111111';
+  const now = Math.floor(Date.now() / 1000);
+  const claims = { iss: issuer, aud: 'authenticated', sub, role: 'authenticated', iat: now, exp: now + 300 };
+  const sign = (payload, key = keys.privateKey) => new SignJWT(payload)
+    .setProtectedHeader({ alg: 'ES256', kid: jwk.kid }).sign(key);
+  let databaseCalls = 0;
+  let called;
+  let databaseMode = 'success';
+  const stored = new Map(notes.map(note => [note.id, {
+    id: note.id, title: note.title, content: note.body, owner_id: sub,
+  }]));
   try {
     for (const name of Object.keys(logging)) console[name] = (...args) => logs.push(args);
-    process.env.SUPABASE_URL = 'https://training.supabase.co';
+    process.env.SUPABASE_URL = project;
     process.env.SUPABASE_SECRET_KEY = fakeSecret;
-    let called;
+    Object.assign(config, { step: 3, identityProvider: {
+      issuer, audience: 'authenticated', jwksUrl: `${issuer}/.well-known/jwks.json`,
+    } });
     globalThis.fetch = async (url, options) => {
-      called = { url: new URL(url), headers: new Headers(options.headers) };
-      return new Response(JSON.stringify(notes.map(note => ({ ...note, secret: fakeSecret, owner_id: 'HIDDEN' }))), {
+      const target = new URL(url);
+      if (target.href === config.identityProvider.jwksUrl ||
+        target.href === `${config.judgeIssuer}/.well-known/jwks.json`) {
+        return new Response(JSON.stringify({ keys: [jwk] }), { headers: { 'content-type': 'application/json' } });
+      }
+      if (target.href === `${issuer}/user`) {
+        return new Response(JSON.stringify({ message: 'UNVERIFIED' }), { status: 401 });
+      }
+      if (target.origin !== project || target.pathname !== '/rest/v1/vault_notes') throw new Error('Unexpected request');
+      databaseCalls++;
+      called = { url: target, headers: new Headers(options.headers) };
+      if (databaseMode === 'error') {
+        return new Response(JSON.stringify({ message: fakeSecret, details: fakeSecret }), { status: 403 });
+      }
+      if (databaseMode === 'throw') throw new Error(fakeSecret);
+      if (databaseMode === 'malformed') return new Response(JSON.stringify([{ id: notes[0].id, title: null, body: fakeSecret }]));
+      const method = options.method ?? 'GET';
+      const targetId = target.searchParams.get('id')?.slice('eq.'.length);
+      const owner = target.searchParams.get('owner_id')?.slice('eq.'.length);
+      let rows = [...stored.values()].filter(row => (!targetId || row.id === targetId) && (!owner || row.owner_id === owner));
+      if (method === 'POST') {
+        const inserted = JSON.parse(options.body);
+        if (stored.has(inserted.id)) return new Response(JSON.stringify({ code: '23505', message: fakeSecret }), { status: 409 });
+        stored.set(inserted.id, inserted);
+        rows = [inserted];
+      } else if (method === 'PATCH') {
+        const changes = JSON.parse(options.body);
+        rows.forEach(row => Object.assign(row, changes));
+      } else if (method === 'DELETE') {
+        rows.forEach(row => stored.delete(row.id));
+      }
+      const projected = target.searchParams.get('select') === 'id' ? rows.map(row => ({ id: row.id }))
+        : rows.map(row => ({ id: row.id, title: row.title, body: row.content, secret: fakeSecret, owner_id: row.owner_id }));
+      return new Response(JSON.stringify(projected), {
         headers: { 'content-type': 'application/json' },
       });
     };
-    const success = await invoke();
-    assert.equal(success.status, 200);
-    assert.deepEqual(success.body, { notes });
-    assert.equal(called.url.pathname, '/rest/v1/vault_notes');
-    assert.equal(called.url.searchParams.get('select'), 'title,content');
-    assert.equal(called.headers.get('apikey'), fakeSecret);
-    assert.equal(success.headers['cache-control'], 'no-store');
-    assert.ok(!JSON.stringify(success).includes(fakeSecret));
 
-    for (const fail of [
-      async () => new Response(JSON.stringify({ message: fakeSecret, details: fakeSecret }), { status: 403 }),
-      async () => { throw new Error(fakeSecret); },
-      async () => new Response(JSON.stringify([{ title: null, content: fakeSecret }])),
-    ]) {
-      globalThis.fetch = fail;
-      const failure = await invoke();
-      assert.equal(failure.status, 502);
-      assert.deepEqual(failure.body, { error: 'NOTES_UNAVAILABLE' });
-      assert.ok(!JSON.stringify(failure).includes(fakeSecret));
-    }
-    let requestCount = 0;
-    globalThis.fetch = async () => { requestCount++; throw new Error('Unexpected request'); };
-    delete process.env.SUPABASE_SECRET_KEY;
-    assert.equal((await invoke()).status, 503);
-    process.env.SUPABASE_SECRET_KEY = fakeSecret;
-    process.env.SUPABASE_URL = 'http://training.supabase.co';
-    assert.equal((await invoke()).status, 503);
-    const rejected = await invoke('POST');
-    assert.equal(rejected.status, 405);
-    assert.equal(rejected.headers.allow, 'GET');
-    assert.equal(requestCount, 0);
+    await t.test('anonymous and browser-forged userId/role requests get 401 without a DB call', async () => {
+      for (const method of ['GET', 'POST', 'PUT', 'DELETE']) {
+        for (const authorization of [undefined, '', ['Bearer invalid']]) {
+          const result = await invoke({ authorization, query: { userId: sub, role: 'authenticated' },
+            method, url: ['PUT', 'DELETE'].includes(method) ? `/api/notes/${notes[0].id}` : '/api/notes',
+            body: { userId: sub, role: 'judge' }, userId: sub, role: 'judge' });
+          assert.equal(result.status, 401);
+          assert.deepEqual(result.body, { error: 'LOGIN_REQUIRED' });
+        }
+      }
+      assert.equal(databaseCalls, 0);
+    });
+
+    await t.test('malformed, expired, wrong issuer/audience/role/sub and invalid signature are denied', async () => {
+      const invalid = [
+        'Bearer invalid', `Bearer ${await sign({ ...claims, exp: now - 60 })}`,
+        `Bearer ${await sign({ ...claims, iss: 'https://other.supabase.co/auth/v1' })}`,
+        `Bearer ${await sign({ ...claims, aud: 'anon' })}`,
+        `Bearer ${await sign({ ...claims, role: 'service_role' })}`,
+        `Bearer ${await sign({ ...claims, sub: 'NOT_A_UUID' })}`,
+        `Bearer ${await sign(claims, wrongKeys.privateKey)}`,
+      ];
+      for (const authorization of invalid) {
+        const result = await invoke({ authorization, query: { userId: sub, role: 'authenticated' } });
+        assert.equal(result.status, 401);
+        assert.deepEqual(result.body, { error: 'LOGIN_REQUIRED' });
+      }
+      assert.equal(databaseCalls, 0);
+    });
+
+    const valid = `Bearer ${await sign(claims)}`;
+    await t.test('verified training A can read four notes without credential or identity leakage', async () => {
+      const result = await invoke({ authorization: valid, query: { userId: 'FORGED', role: 'service_role' } });
+      assert.equal(result.status, 200);
+      assert.deepEqual(result.body, notes);
+      assert.equal(called.url.pathname, '/rest/v1/vault_notes');
+      assert.equal(called.url.searchParams.get('select'), 'id,title,body:content');
+      assert.equal(called.url.searchParams.get('owner_id'), `eq.${sub}`);
+      assert.equal(called.headers.get('apikey'), fakeSecret);
+      assert.equal(result.headers['cache-control'], 'no-store');
+      assert.ok(!JSON.stringify(result).includes(fakeSecret));
+      assert.ok(!JSON.stringify(result).includes(valid));
+      assert.ok(!JSON.stringify(result).includes(sub));
+    });
+
+    await t.test('the starter judge A flow is preserved', async () => {
+      const authorization = `Bearer ${await sign({
+        ...claims, iss: config.judgeIssuer, aud: new URL(config.publicAppUrl).hostname,
+        aleph_role: 'judge', aleph_identity: 'a', aleph_run: '22222222-2222-4222-8222-222222222222',
+      })}`;
+      const result = await invoke({ authorization });
+      assert.equal(result.status, 200);
+      assert.deepEqual(result.body, notes);
+    });
+
+    await t.test('DB failures never expose upstream errors or credentials', async () => {
+      for (const mode of ['error', 'throw', 'malformed']) {
+        databaseMode = mode;
+        const result = await invoke({ authorization: valid });
+        assert.equal(result.status, 502);
+        assert.deepEqual(result.body, { error: 'NOTES_UNAVAILABLE' });
+        assert.ok(!JSON.stringify(result).includes(fakeSecret));
+        assert.ok(!JSON.stringify(result).includes(valid));
+      }
+      databaseMode = 'success';
+    });
+
+    await t.test('missing or mismatched settings fail closed, even after a successful request', async () => {
+      const before = databaseCalls;
+      delete process.env.SUPABASE_SECRET_KEY;
+      assert.equal((await invoke({ authorization: valid })).status, 503);
+      process.env.SUPABASE_SECRET_KEY = fakeSecret;
+      process.env.SUPABASE_URL = 'http://training.supabase.co';
+      assert.equal((await invoke({ authorization: valid })).status, 503);
+      process.env.SUPABASE_URL = project;
+      config.identityProvider.issuer = '';
+      assert.equal((await invoke({ authorization: valid })).status, 503);
+      config.identityProvider.issuer = 'https://other.supabase.co/auth/v1';
+      assert.equal((await invoke({ authorization: valid })).status, 503);
+      config.identityProvider.issuer = issuer;
+      config.identityProvider.jwksUrl = 'https://other.supabase.co/auth/v1/.well-known/jwks.json';
+      assert.equal((await invoke({ authorization: valid })).status, 503);
+      config.identityProvider.jwksUrl = `${issuer}/.well-known/jwks.json`;
+      const rejected = await invoke({ method: 'PATCH', authorization: valid });
+      assert.equal(rejected.status, 405);
+      assert.equal(rejected.headers.allow, 'GET, POST');
+      assert.equal(databaseCalls, before);
+    });
+
+    await t.test('A can create with a supplied or generated UUID, read, update, delete, then get 404', async () => {
+      const id = '33333333-3333-4333-8333-333333333333';
+      const created = await invoke({ method: 'POST', authorization: valid,
+        body: { id, title: 'CREATE_TEST', body: 'CREATE_BODY', owner_id: 'FORGED_OWNER', userId: 'FORGED', role: 'judge' } });
+      assert.equal(created.status, 201);
+      assert.deepEqual(created.body, { id });
+      assert.equal(stored.get(id).owner_id, sub);
+      assert.equal(stored.get(id).content, 'CREATE_BODY');
+      assert.equal((await invoke({ method: 'POST', authorization: valid,
+        body: { id, title: 'DUPLICATE', body: 'DUPLICATE' } })).status, 409);
+      const path = `/api/notes/${id}`;
+      const read = await invoke({ authorization: valid, url: path });
+      assert.deepEqual(read.body, { id, title: 'CREATE_TEST', body: 'CREATE_BODY' });
+      const updated = await invoke({ method: 'PUT', authorization: valid, url: path,
+        body: { title: 'UPDATED_TEST', body: 'UPDATED_BODY', owner_id: 'FORGED_OWNER', id: notes[0].id } });
+      assert.equal(updated.status, 200);
+      assert.equal(stored.get(id).owner_id, sub);
+      assert.equal((await invoke({ authorization: valid, url: path })).body.body, 'UPDATED_BODY');
+      // This is the form Vercel passes after the configured internal rewrite.
+      assert.equal((await invoke({ authorization: valid, query: { noteId: id } })).body.id, id);
+      assert.equal((await invoke({ method: 'DELETE', authorization: valid, url: path })).status, 204);
+      assert.equal((await invoke({ authorization: valid, url: path })).status, 404);
+      assert.equal((await invoke({ method: 'DELETE', authorization: valid, url: path })).status, 404);
+      const generated = await invoke({ method: 'POST', authorization: valid,
+        body: JSON.stringify({ title: 'GENERATED_TEST', body: 'GENERATED_BODY' }) });
+      assert.equal(generated.status, 201);
+      assert.match(generated.body.id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
+      assert.equal(stored.get(generated.body.id).owner_id, sub);
+      await invoke({ method: 'DELETE', authorization: valid, url: `/api/notes/${generated.body.id}` });
+    });
+
+    await t.test('list belongs to the verified user; single-note operations intentionally have no owner check yet', async () => {
+      const otherId = '44444444-4444-4444-8444-444444444444';
+      const otherUser = '55555555-5555-4555-8555-555555555555';
+      stored.set(otherId, { id: otherId, title: 'OTHER_TEST', content: 'OTHER_BODY', owner_id: otherUser });
+      const list = await invoke({ authorization: valid, query: { userId: otherUser } });
+      assert.deepEqual(list.body, notes);
+      assert.equal((await invoke({ authorization: valid, url: `/api/notes/${otherId}` })).status, 200);
+      assert.equal(called.url.searchParams.get('owner_id'), null);
+      const result = await invoke({ method: 'PUT', authorization: valid, url: `/api/notes/${otherId}`,
+        body: { title: 'CROSS_OWNER_TEST', body: 'CROSS_OWNER_BODY' } });
+      assert.equal(result.status, 200);
+      assert.equal(stored.get(otherId).owner_id, otherUser);
+      assert.equal(stored.get(otherId).content, 'CROSS_OWNER_BODY');
+      assert.equal((await invoke({ method: 'DELETE', authorization: valid, url: `/api/notes/${otherId}` })).status, 204);
+    });
+
+    await t.test('invalid routes, JSON, IDs and payloads never reach the DB', async () => {
+      const before = databaseCalls;
+      for (const body of [{ title: '', body: 'BODY' }, { title: 'TITLE', body: '' },
+        { id: 'BAD', title: 'TITLE', body: 'BODY' }, { title: 'x'.repeat(201), body: 'BODY' },
+        { title: 'TITLE', body: 'x'.repeat(10001) }, [], '{bad']) {
+        assert.equal((await invoke({ method: 'POST', authorization: valid, body })).status, 400);
+      }
+      assert.equal((await invoke({ authorization: valid, url: '/api/notes/BAD' })).status, 400);
+      assert.equal((await invoke({ authorization: valid, url: '/api/notes/extra/path' })).status, 404);
+      assert.equal((await invoke({ method: 'PUT', authorization: valid, body: {} })).status, 405);
+      assert.equal((await invoke({ method: 'POST', authorization: valid, url: `/api/notes/${notes[0].id}`, body: {} })).status, 405);
+      assert.equal((await invoke({ method: 'POST', authorization: valid, headers: { 'content-type': 'text/plain' }, body: {} })).status, 415);
+      assert.equal(databaseCalls, before);
+    });
     assert.deepEqual(logs, []);
   } finally {
     for (const [name, value] of [['SUPABASE_URL', saved.url], ['SUPABASE_SECRET_KEY', saved.key]]) {
       if (value === undefined) delete process.env[name]; else process.env[name] = value;
     }
     globalThis.fetch = saved.fetch;
+    Object.assign(config, saved.config);
     Object.assign(console, logging);
   }
 });
 
-test('browser requests the server function and renders four cards without Supabase credentials', async () => {
+test('static screen has no anonymous notes fetch or server secret', async () => {
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
-  assert.doesNotMatch(html, /SUPABASE|supabase-js|data\.json/u);
-  const script = html.match(/<script type="module">([\s\S]*?)<\/script>/u)[1];
-  const list = { replaceChildren(...children) { this.children = children; } };
-  const document = {
-    querySelector: () => list,
-    createElement: tag => ({ tag, append(...children) { this.children = children; } }),
-  };
-  let requested;
-  await runInNewContext(`(async () => { ${script} })()`, {
-    document,
-    fetch: async (url, options) => {
-      requested = { url, options };
-      return { ok: true, json: async () => ({ notes }) };
-    },
-  });
-  assert.equal(requested.url, '/api/notes');
-  assert.equal(requested.options.cache, 'no-store');
-  assert.equal(requested.options.headers, undefined);
-  assert.equal(list.children.length, 4);
-  list.children.forEach((card, i) => {
-    assert.equal(card.tag, 'li');
-    assert.equal(card.children[0].textContent, notes[i].title);
-    assert.equal(card.children[1].textContent, notes[i].content);
-  });
+  assert.doesNotMatch(html, /SUPABASE_SECRET_KEY|data\.json|fetch\(|<script type="module">/u);
+  assert.match(html, /로그인 후 자료를 볼 수 있습니다/u);
+  assert.match(html, /src="\/auth-ui\.js"/u);
 });
