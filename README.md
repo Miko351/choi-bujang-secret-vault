@@ -2,6 +2,16 @@
 
 이 저장소는 방어전 R5 시작 틀에서 출발했습니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
+## 2단계 저장점
+
+가상 메모 이관 SQL은 로컬에만 보관하고, 최신 Git 파일과 정적 배포에서 메모 본문을 제거했습니다. 화면은 서버 함수 `/api/notes`를 호출하도록 구현했습니다. 실제 배포 확인은 `/` 200, `/data.json` 404, `/aleph.json` 200·2단계이며, API는 503 `NOTES_NOT_CONFIGURED`라 메모 네 건의 표시를 아직 확인하지 못했습니다.
+
+설정의 저장소 주소와 배포 주소는 Git 원격 및 `https://choi-bujang-secret-vault-nu.vercel.app`에 맞췄습니다. 로그인 발급자와 경로별 접근 정책은 미구현으로 `identityProvider: null`, `allowedRoutes: []`를 유지하며, 원본 API 주소는 5단계 전이므로 `null`입니다. 판정기의 `starter.deny`는 실제로 구현된 기본 거부 응답이며, 2단계의 로그인 보호 규칙을 의미하지 않습니다. `judgeIssuer`는 변경하지 않았습니다.
+
+다시 실행: `npm run build -- --local`. Vercel의 **Deployments → 최신 Production 배포 → Visit**에서 화면을 확인합니다. Supabase SQL 실행과 Vercel 서버 환경변수 설정은 사용자가 공식 설정 화면에서 수행해야 합니다. 정상 기대 결과는 카드 네 개와 정적 `/data.json` 404이며, API 설정 미완료와 인증 없는 공개 함수·과거 노출은 해결된 것으로 보고하지 않습니다.
+
+이 저장점의 제출 묶음은 `npm run bundle`로 만듭니다. 로컬 `bundle-notes.json`의 설명과 실제 배포 요청 결과를 사용하며 `artifacts/submission.json`으로 저장합니다. 두 파일, 키 값, 실명, 메모 본문과 이관 SQL은 커밋하지 않습니다. 생성 성공은 학생의 자기 점검 기록 생성이며 심판 판정이나 자료실 보호 성공을 뜻하지 않습니다.
+
 ## 현재 기록: 2단계 · 자료를 코드 밖으로 옮깁니다
 
 기존 가상 메모 네 건의 이관 SQL은 로컬 `local-only/step2-supabase.sql`에만 보관합니다. 이 폴더는 Git에서 제외되며 정적 배포 결과물 `public/`에도 포함하지 않습니다. 새로 저장소를 복제한 경우 이 SQL 파일은 따라오지 않습니다. 원본 SQL은 본인의 로컬 파일로 보관하세요.
