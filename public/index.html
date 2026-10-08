@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BYTE BACK | 점령된 자료실</title>
+  <title>BYTE BACK | 내 자료실</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; }
     body { margin: 0; min-height: 100vh; background: #101a28; color: #ecf4ff; }
@@ -20,11 +20,11 @@
 </head>
 <body>
   <main>
-    <div class="eyebrow">BYTE BACK · 1단계 피해 확인</div>
-    <h1>점령된 자료실</h1>
-    <p>지금은 보호 장치가 없는 상태입니다. 아래 기록은 모두 실습을 위해 만든 가상 자료입니다.</p>
-    <div class="notice">로그인하지 않은 방문자도 자료를 볼 수 있습니다. 공개 범위를 확인하고, 다음 제작 단계에서 접근을 차례로 막아 주세요.</div>
-    <ul id="notes" aria-live="polite"><li>가상 자료를 불러오는 중입니다.</li></ul>
+    <div class="eyebrow">BYTE BACK · 2단계</div>
+    <h1>내 자료실</h1>
+    <p>자료를 코드 밖으로 옮깁니다.</p>
+    <div class="notice">자료 열람 기능은 준비 중입니다.</div>
+    <ul id="notes" aria-live="polite"><li>공개 자료를 확인하는 중입니다.</li></ul>
   </main>
   <script type="module">
     const list = document.querySelector('#notes');
@@ -33,15 +33,21 @@
       if (!response.ok) throw new Error('공개 자료를 읽을 수 없습니다.');
       const data = await response.json();
       if (!Array.isArray(data.notes)) throw new Error('자료 형식이 맞지 않습니다.');
-      list.replaceChildren(...data.notes.map(note => {
+      if (data.notes.length === 0) {
         const item = document.createElement('li');
-        const title = document.createElement('strong');
-        const content = document.createElement('span');
-        title.textContent = note.title;
-        content.textContent = note.content;
-        item.append(title, content);
-        return item;
-      }));
+        item.textContent = '공개된 메모가 없습니다.';
+        list.replaceChildren(item);
+      } else {
+        list.replaceChildren(...data.notes.map(note => {
+          const item = document.createElement('li');
+          const title = document.createElement('strong');
+          const content = document.createElement('span');
+          title.textContent = note.title;
+          content.textContent = note.content;
+          item.append(title, content);
+          return item;
+        }));
+      }
     } catch (error) {
       const item = document.createElement('li');
       item.textContent = error.message;
