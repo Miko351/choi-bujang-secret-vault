@@ -35,12 +35,12 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_COMMIT_SHA: 'short' }, config));
 });
 
-test('second stage identity records step 2 and still validates Vercel metadata', () => {
-  assert.equal(deploymentIdentity(env, { ...config, step: 2 }).step, 2);
-  assert.throws(() => deploymentIdentity(env, { ...config, step: 3 }));
+test('later stage identity records the configured stage and validates its range', () => {
+  for (const step of [2, 3, 12]) assert.equal(deploymentIdentity(env, { ...config, step }).step, step);
+  for (const step of [0, 13, 2.5, '2']) assert.throws(() => deploymentIdentity(env, { ...config, step }));
 });
 
-test('second stage build emits no note bodies and fails if source notes return', async () => {
+test('later builds remove static data, retain deployment metadata and reject source notes', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'vault-build-'));
   try {
     await mkdir(join(directory, 'scripts'));
@@ -51,49 +51,62 @@ test('second stage build emits no note bodies and fails if source notes return',
     await writeFile(join(directory, 'data.json'), JSON.stringify({
       notes: [], extra: 'SOURCE_ONLY_VALUE',
     }));
-    const build = () => spawnSync(process.execPath, [join(directory, 'scripts/build-public.mjs'), '--local'], {
-      encoding: 'utf8', windowsHide: true,
+    const build = (...args) => spawnSync(process.execPath, [join(directory, 'scripts/build-public.mjs'), ...args], {
+      encoding: 'utf8', windowsHide: true, env: { ...process.env, ...env },
     });
-    assert.equal(build().status, 0);
     const output = join(directory, 'public/data.json');
-    assert.deepEqual(JSON.parse(await readFile(output, 'utf8')), {
-      sampleMarker: config.sampleMarker, notes: [],
-    });
+    await mkdir(join(directory, 'public'));
+    for (const step of [2, 3, 12]) {
+      await writeFile(join(directory, 'aleph.config.json'), JSON.stringify({ ...config, step }));
+      await writeFile(output, JSON.stringify({ notes: [{ content: 'STALE_TEST_CONTENT' }] }));
+      assert.equal(build().status, 0);
+      await assert.rejects(readFile(output), { code: 'ENOENT' });
+      const identity = JSON.parse(await readFile(join(directory, 'public/aleph.json'), 'utf8'));
+      assert.equal(identity.step, step);
+      assert.equal(identity.commit, env.VERCEL_GIT_COMMIT_SHA);
+      assert.equal(identity.repoUrl, 'https://github.com/student-a/aleph-defense');
+    }
     await writeFile(join(directory, 'data.json'), JSON.stringify({
       notes: [{ title: 'PRIVATE_TEST_TITLE', content: 'PRIVATE_TEST_CONTENT' }],
     }));
     await writeFile(output, JSON.stringify({ notes: [{ content: 'STALE_TEST_CONTENT' }] }));
-    const failed = build();
+    const failed = build('--local');
     assert.notEqual(failed.status, 0);
-    assert.match(failed.stderr, /2단계 data.json에는 메모를 남길 수 없습니다/u);
-    assert.deepEqual(JSON.parse(await readFile(output, 'utf8')).notes, []);
+    assert.match(failed.stderr, /2단계 이후 data.json에는 메모를 남길 수 없습니다/u);
+    await assert.rejects(readFile(output), { code: 'ENOENT' });
     assert.doesNotMatch(failed.stderr, /PRIVATE_TEST_CONTENT/u);
+    await rm(join(directory, 'data.json'));
+    assert.equal(build().status, 0);
+    await assert.rejects(readFile(output), { code: 'ENOENT' });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test('second stage check accepts empty JSON but rejects notes, extra fields and invalid responses', async () => {
+test('second stage check requires removed static data and four notes from the public function', async () => {
   const originalFetch = globalThis.fetch;
   try {
     const secondConfig = { ...config, step: 2 };
-    globalThis.fetch = async () => new Response(JSON.stringify({ sampleMarker: config.sampleMarker, notes: [] }));
-    const [empty] = await runAttackChecks(secondConfig);
-    assert.match(empty.observed, /메모가 없는 정적 자료 확인/u);
-    for (const data of [
-      { sampleMarker: config.sampleMarker, notes: [{ content: 'PRIVATE_TEST_CONTENT' }] },
-      { sampleMarker: config.sampleMarker, notes: [], content: 'PRIVATE_TEST_CONTENT' },
-      { sampleMarker: config.sampleMarker },
+    const notes = Array.from({ length: 4 }, () => ({ title: 'TEST', content: 'TEST' }));
+    globalThis.fetch = async url => String(url).endsWith('/data.json')
+      ? new Response(null, { status: 404 }) : new Response(JSON.stringify({ notes }));
+    const [removed, server] = await runAttackChecks(secondConfig);
+    assert.match(removed.observed, /HTTP 404로 거부됨/u);
+    assert.match(server.observed, /메모 네 건 확인/u);
+    globalThis.fetch = async url => String(url).endsWith('/data.json')
+      ? new Response(JSON.stringify({ notes: [] })) : new Response(JSON.stringify({ notes }));
+    const [stale] = await runAttackChecks(secondConfig);
+    assert.match(stale.observed, /점검 실패/u);
+    for (const response of [
+      new Response(JSON.stringify({ notes: [] })),
+      new Response(JSON.stringify({ notes: [{ content: 'PRIVATE_TEST_CONTENT' }] })),
+      new Response('<html>error</html>'), new Response(null, { status: 503 }),
     ]) {
-      globalThis.fetch = async () => new Response(JSON.stringify(data));
-      const [failed] = await runAttackChecks(secondConfig);
+      globalThis.fetch = async url => String(url).endsWith('/data.json')
+        ? new Response(null, { status: 404 }) : response;
+      const [, failed] = await runAttackChecks(secondConfig);
       assert.match(failed.observed, /점검 실패/u);
       assert.doesNotMatch(failed.observed, /PRIVATE_TEST_CONTENT/u);
-    }
-    for (const response of [new Response('<html>error</html>'), new Response(null, { status: 404 })]) {
-      globalThis.fetch = async () => response;
-      const [failed] = await runAttackChecks(secondConfig);
-      assert.match(failed.observed, /점검 실패/u);
     }
   } finally {
     globalThis.fetch = originalFetch;
