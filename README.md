@@ -2,6 +2,26 @@
 
 이 저장소는 방어전 R5 시작 틀에서 출발했습니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
+## 4단계 저장점 · 2026-10-12
+
+자료 API의 소유자 검사를 구현했습니다. 로그인 검증은 시작 틀의 `src/verify-login.mjs`를 그대로 사용합니다. URL·쿼리·본문의 `owner_id`, `userId`, `role`을 소유자 판단에 사용하지 않으며 검증된 사용자 ID만 DB 조건에 넣습니다. 목록과 한 건 GET은 그 ID와 `owner_id`가 일치하는 행만 반환합니다. 타인 메모의 GET·PUT·DELETE는 자료 없이 404 `NOT_FOUND`로 거부합니다. 메모가 없는 경우와 같은 응답입니다.
+
+POST는 기존 `{id,title,body}` 계약을 유지하며 UUID 생략 시 서버가 생성합니다. 본문에 소유자 값을 보내더라도 저장할 `owner_id`는 서버 검증 결과로 정합니다. 기존 타인 ID로 추가를 시도해도 덮어쓰지 않으며 중복 ID는 409입니다. PUT 본문은 `{title,body}`입니다. PUT에 `owner_id`를 포함하면 값과 관계없이 403 `OWNER_CHANGE_FORBIDDEN`으로 거부합니다. 실제 수정은 ID와 기존 `owner_id` 조건을 한 DB 요청에 넣고 새 행의 소유자도 검증된 ID로 고정합니다. POST·PUT 결과의 소유자도 서버 내부에서 확인하며 소유자 필드는 응답에 넣지 않습니다. DELETE 역시 ID와 소유자 조건을 한 요청에 넣습니다.
+
+한 건 GET 응답은 `{id,title,body}`, 목록은 이 객체들의 배열입니다. POST는 201 `{id}`, PUT은 200 `{id}`, DELETE는 204, 삭제 뒤 GET은 404입니다. `aleph.config.json`의 단계는 4이고 `allowedRoutes`에는 실제 경로 `GET /api/notes`, `POST /api/notes`, `GET /api/notes/:id`, `PUT /api/notes/:id`, `DELETE /api/notes/:id` 다섯 개를 유지합니다. 기존 로그인 발급자와 `judgeIssuer`도 유지합니다.
+
+DB 권한 SQL과 RLS 정책은 실행하지 않았습니다. 학생은 앞선 학습용 소유자 연결 SQL의 성공을 알렸지만 실제 A/B 로그인과 소유자별 CRUD 시험은 아직 미실행입니다. 이후 RLS·최소 권한 SQL은 검토용으로 제안만 했으며 파일 저장·DB 적용·전후 권한 조회는 하지 않았습니다. 서버 전용 키로 DB에 접속하는 현재 API는 RLS를 우회하므로 API의 소유자 검사와 로그인 역할의 DB 정책은 각각 확인해야 합니다. 아래 3단계·2단계 항목은 당시 저장점과 점검 기록이며 현재 상태는 이 절을 기준으로 봅니다.
+
+검증 명령: `node --test test/notes.test.mjs test/auth-ui.test.mjs test/r5.test.mjs test/package-starter.test.mjs`. 새 코드를 배포한 뒤 화면의 **A 로그인 → 자기 메모 추가 → 수정 저장 → 삭제 → 로그아웃 → B 로그인**을 확인합니다. 각 계정은 본인 메모만 관리할 수 있어야 합니다. 상대 ID의 GET·PUT·DELETE는 404, PUT 소유자 필드 추가는 403, 무로그인은 401 JSON 오류여야 합니다. 브라우저 개발자 도구에서 확인하더라도 비밀번호·토큰·키를 파일이나 제출 묶음에 복사하지 마세요.
+
+앞선 로컬 검증은 시험 33개와 `npm run build -- --local`이 통과했습니다. 실제 시작 틀 도우미와 SDK를 사용하고 계정·서명 키는 합성 자료, 네트워크·DB는 모의 처리했습니다. A/B의 본인 CRUD, 서로의 메모 접근 거부, 소유자 필드 거부, 읽은 뒤 소유자가 바뀐 행의 수정·삭제 거부, 새 소유자 응답 검증을 확인했습니다. 실제 배포의 A/B 시험 결과로 보고하지 않습니다.
+
+저장점 검증에서는 자기 점검의 HTML 오류·자료 섞인 오류 응답·옛 배포 구분 시험을 추가했습니다. 첫 시험 오류인 JSON 소비 후 응답 스트림의 중복 닫기만 수정한 뒤 전체 시험 34개와 `npm run build -- --local`이 통과했습니다. `public/data.json`은 생성되지 않았습니다.
+
+저장점 설정 대조: 단계 4, Git origin과 같은 저장소 주소·기존 Vercel 주소, 위 다섯 자료 API 경로, 실제 Supabase 발급자·대상·JWKS 주소를 유지합니다. `judgeIssuer`는 변경하지 않고 5단계 전의 `originalApiUrl`은 `null`, 판정기 규칙은 구현된 기본 거부 `starter.deny`만 남깁니다. 로그인 도우미와 빌드의 `/aleph.json` 생성도 보존합니다.
+
+다시 실행하는 명령은 `npm run bundle`입니다. 자기 점검은 `/data.json`, 무로그인 목록·한 건 GET·POST·PUT·DELETE, `/aleph.json`, 첫 화면 보안 헤더에 실제 요청을 보내고 결과만 기록합니다. 쓰기 요청에는 잘못된 UUID와 빈 본문을 사용합니다. 실제 A/B 정상·교차 접근 시험과 DB 권한 조회는 미실행으로 남깁니다. 묶음 JSON의 배포 식별 결과가 다른 단계·커밋이면 최신 배포 확인이 필요하며 묶음 생성 성공은 심판 통과를 뜻하지 않습니다. 이번 요청에서는 로컬 커밋만 만들며 GitHub push와 배포는 실행하지 않습니다. `bundle-notes.json`과 `artifacts/submission.json`은 커밋에서 제외하며 메모 본문·비밀값은 묶음에 넣지 않습니다. 옛 공개 커밋과 옛 배포가 남는 동안 과거 노출이 해소됐다고 기록하지 않습니다.
+
 ## 3단계 저장점
 
 2026-10-12 저장점과 이후 연결 작업: 기존 로그인·서버 토큰 검사·가상 메모 CRUD 코드와 첫 화면의 `nosniff` 헤더 설정을 보존했습니다. 사용자가 제공한 공개 Project URL `https://ytvrtibeicludqdgeltt.supabase.co`로 `identityProvider.issuer`·`jwksUrl`을 기록해 제출 묶음의 첫 오류인 발급자 설정 누락을 수정했습니다. 공개 JWKS 요청은 200, 올바른 키 목록 형식과 공개키 한 개를 확인했습니다. 키 내용은 출력하지 않았습니다. 이후 같은 Project URL과 사용자 제공 공개 publishable key를 브라우저 설정에도 연결했습니다. 모의 UI 시험 9개와 API 시험 11개는 앞선 검증에서 통과했습니다. 실제 A 로그인은 미실행입니다. 다시 실행하는 명령은 `npm run build -- --local`이고, 연결·배포 후 화면의 **로그인 → 추가 → 수정 저장 → 삭제 → 로그아웃**에서 정상 흐름과 무로그인 401 JSON 거부를 확인해야 합니다.

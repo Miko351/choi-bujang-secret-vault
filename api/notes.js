@@ -44,6 +44,8 @@ export default async function handler(request, response) {
   } catch {
     return response.status(401).json({ error: 'LOGIN_REQUIRED' });
   }
+  // PostgreSQL UUID values are canonical lowercase, including verified judge IDs.
+  const ownerId = identity.userId.toLowerCase();
 
   let id;
   try {
@@ -79,6 +81,9 @@ export default async function handler(request, response) {
             && (typeof input.id !== 'string' || !UUID.test(input.id)))) {
         return response.status(400).json({ error: 'INVALID_NOTE' });
       }
+      if (request.method === 'PUT' && Object.hasOwn(input, 'owner_id')) {
+        return response.status(403).json({ error: 'OWNER_CHANGE_FORBIDDEN' });
+      }
     } catch {
       return response.status(400).json({ error: 'INVALID_NOTE' });
     }
@@ -90,16 +95,18 @@ export default async function handler(request, response) {
     if (request.method === 'POST') {
       const createdId = input.id?.toLowerCase() ?? randomUUID();
       operation = table.insert({ id: createdId, title: input.title.trim(), content: input.body,
-        owner_id: identity.userId }).select('id');
+        owner_id: ownerId }).select('id,owner_id');
     } else if (request.method === 'PUT') {
-      // Stage 4 will bind this row to identity.userId. Stage 3 intentionally does not.
-      operation = table.update({ title: input.title.trim(), content: input.body }).eq('id', id).select('id');
+      // Check the existing owner in the same write, and bind the new owner as well.
+      operation = table.update({ title: input.title.trim(), content: input.body,
+        owner_id: ownerId }).eq('id', id).eq('owner_id', ownerId)
+        .select('id,owner_id');
     } else if (request.method === 'DELETE') {
-      operation = table.delete().eq('id', id).select('id');
+      operation = table.delete().eq('id', id).eq('owner_id', ownerId).select('id');
     } else if (id) {
-      operation = table.select('id,title,body:content').eq('id', id);
+      operation = table.select('id,title,body:content').eq('id', id).eq('owner_id', ownerId);
     } else {
-      operation = table.select('id,title,body:content').eq('owner_id', identity.userId)
+      operation = table.select('id,title,body:content').eq('owner_id', ownerId)
         .order('created_at', { ascending: true }).order('id', { ascending: true });
     }
     const { data, error } = await operation.abortSignal(AbortSignal.timeout(10000));
@@ -108,7 +115,8 @@ export default async function handler(request, response) {
     }
     if (error || !Array.isArray(data)
         || data.some(note => !UUID.test(note?.id ?? '') || (request.method === 'GET'
-          && (typeof note.title !== 'string' || typeof note.body !== 'string')))) {
+          && (typeof note.title !== 'string' || typeof note.body !== 'string'))
+          || (['POST', 'PUT'].includes(request.method) && note.owner_id !== ownerId))) {
       return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });
     }
     if (request.method === 'POST') {

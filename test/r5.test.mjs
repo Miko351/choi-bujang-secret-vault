@@ -170,3 +170,47 @@ test('third stage self-check reports HTTP denials honestly and never attempts a 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('fourth stage self-check rejects HTML denials and reports stale deployments and unrun account checks', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const fourthConfig = { ...config, step: 4, repoUrl: 'https://github.com/student-a/aleph-defense' };
+  try {
+    globalThis.fetch = async (url, options) => {
+      const path = new URL(url).pathname;
+      calls.push({ path, options });
+      if (path === '/data.json') return new Response(null, { status: 404 });
+      if (path === '/aleph.json') return Response.json({ step: 3, repoUrl: fourthConfig.repoUrl, commit: 'a'.repeat(40) });
+      if (path === '/') return new Response(null, { headers: { 'X-Content-Type-Options': 'nosniff' } });
+      return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
+    };
+    const results = await runAttackChecks(fourthConfig);
+    assert.equal(calls.length, 8);
+    assert.equal(results.length, 11);
+    assert.equal(new Set(results.map(result => result.attackId)).size, results.length);
+    for (const result of results.slice(1, 6)) assert.match(result.observed, /HTTP 401 JSON 오류/u);
+    assert.match(results[6].observed, /배포 단계 3.*불일치/u);
+    assert.match(results[7].observed, /nosniff 헤더 확인/u);
+    for (const result of results.slice(8)) assert.match(result.observed, /^미실행/u);
+    for (const { path, options } of calls) {
+      if (path === '/data.json') continue;
+      assert.equal(options.credentials, 'omit');
+      assert.equal(options.headers?.Authorization, undefined);
+      if (['POST', 'PUT'].includes(options.method)) assert.equal(options.body, '{}');
+      if (['PUT', 'DELETE'].includes(options.method)) assert.equal(path, '/api/notes/not-a-uuid');
+    }
+    for (const denial of [
+      () => new Response('<html>PRIVATE_TEST_CONTENT</html>', { status: 401 }),
+      () => Response.json({ error: 'LOGIN_REQUIRED', notes: ['PRIVATE_TEST_CONTENT'] }, { status: 401 }),
+      () => Response.json({ error: 'NOTES_NOT_CONFIGURED' }, { status: 503 }),
+    ]) {
+      globalThis.fetch = async url => String(url).endsWith('/data.json')
+        ? new Response(null, { status: 404 }) : denial();
+      const failed = await runAttackChecks(fourthConfig);
+      for (const result of failed.slice(1, 6)) assert.match(result.observed, /점검 실패/u);
+      assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_TEST_CONTENT/u);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

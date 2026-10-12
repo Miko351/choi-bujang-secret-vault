@@ -50,7 +50,7 @@ test('notes API uses the unchanged starter verifier before every note query', as
     for (const name of Object.keys(logging)) console[name] = (...args) => logs.push(args);
     process.env.SUPABASE_URL = project;
     process.env.SUPABASE_SECRET_KEY = fakeSecret;
-    Object.assign(config, { step: 3, identityProvider: {
+    Object.assign(config, { step: 4, identityProvider: {
       issuer, audience: 'authenticated', jwksUrl: `${issuer}/.well-known/jwks.json`,
     } });
     globalThis.fetch = async (url, options) => {
@@ -86,7 +86,12 @@ test('notes API uses the unchanged starter verifier before every note query', as
         rows.forEach(row => stored.delete(row.id));
       }
       const projected = target.searchParams.get('select') === 'id' ? rows.map(row => ({ id: row.id }))
+        : target.searchParams.get('select') === 'id,owner_id'
+          ? rows.map(row => ({ id: row.id, owner_id: row.owner_id, secret: fakeSecret }))
         : rows.map(row => ({ id: row.id, title: row.title, body: row.content, secret: fakeSecret, owner_id: row.owner_id }));
+      if (databaseMode === 'wrong-owner-response') {
+        projected.forEach(row => { row.owner_id = '99999999-9999-4999-8999-999999999999'; });
+      }
       return new Response(JSON.stringify(projected), {
         headers: { 'content-type': 'application/json' },
       });
@@ -195,7 +200,7 @@ test('notes API uses the unchanged starter verifier before every note query', as
       const read = await invoke({ authorization: valid, url: path });
       assert.deepEqual(read.body, { id, title: 'CREATE_TEST', body: 'CREATE_BODY' });
       const updated = await invoke({ method: 'PUT', authorization: valid, url: path,
-        body: { title: 'UPDATED_TEST', body: 'UPDATED_BODY', owner_id: 'FORGED_OWNER', id: notes[0].id } });
+        body: { title: 'UPDATED_TEST', body: 'UPDATED_BODY' } });
       assert.equal(updated.status, 200);
       assert.equal(stored.get(id).owner_id, sub);
       assert.equal((await invoke({ authorization: valid, url: path })).body.body, 'UPDATED_BODY');
@@ -212,20 +217,122 @@ test('notes API uses the unchanged starter verifier before every note query', as
       await invoke({ method: 'DELETE', authorization: valid, url: `/api/notes/${generated.body.id}` });
     });
 
-    await t.test('list belongs to the verified user; single-note operations intentionally have no owner check yet', async () => {
+    await t.test('A and B retain their own CRUD and cannot read, edit or delete each other notes', async () => {
       const otherId = '44444444-4444-4444-8444-444444444444';
       const otherUser = '55555555-5555-4555-8555-555555555555';
       stored.set(otherId, { id: otherId, title: 'OTHER_TEST', content: 'OTHER_BODY', owner_id: otherUser });
-      const list = await invoke({ authorization: valid, query: { userId: otherUser } });
-      assert.deepEqual(list.body, notes);
-      assert.equal((await invoke({ authorization: valid, url: `/api/notes/${otherId}` })).status, 200);
-      assert.equal(called.url.searchParams.get('owner_id'), null);
-      const result = await invoke({ method: 'PUT', authorization: valid, url: `/api/notes/${otherId}`,
-        body: { title: 'CROSS_OWNER_TEST', body: 'CROSS_OWNER_BODY' } });
-      assert.equal(result.status, 200);
-      assert.equal(stored.get(otherId).owner_id, otherUser);
-      assert.equal(stored.get(otherId).content, 'CROSS_OWNER_BODY');
-      assert.equal((await invoke({ method: 'DELETE', authorization: valid, url: `/api/notes/${otherId}` })).status, 204);
+      const otherAuthorization = `Bearer ${await sign({ ...claims, sub: otherUser })}`;
+      for (const actor of [
+        { userId: sub, authorization: valid, ownId: notes[0].id, foreignId: otherId,
+          otherUser, expectedList: notes },
+        { userId: otherUser, authorization: otherAuthorization, ownId: otherId, foreignId: notes[0].id,
+          otherUser: sub, expectedList: [{ id: otherId, title: 'OTHER_TEST', body: 'OTHER_BODY' }] },
+      ]) {
+        const { authorization } = actor;
+        const spoofed = { owner_id: actor.otherUser, userId: actor.otherUser, role: 'service_role' };
+        const list = await invoke({ authorization, query: spoofed });
+        assert.deepEqual(list.body, actor.expectedList);
+        const own = await invoke({ authorization, url: `/api/notes/${actor.ownId}?owner_id=${actor.otherUser}`,
+          query: spoofed });
+        assert.equal(own.status, 200);
+        assert.deepEqual(Object.keys(own.body).sort(), ['body', 'id', 'title']);
+        const before = structuredClone(stored.get(actor.foreignId));
+        for (const method of ['GET', 'PUT', 'DELETE']) {
+          const denied = await invoke({ method, authorization,
+            url: `/api/notes/${actor.foreignId}?owner_id=${actor.userId}`, query: spoofed,
+            body: { title: 'CROSS_OWNER_TEST', body: 'CROSS_OWNER_BODY' } });
+          assert.equal(denied.status, 404);
+          assert.deepEqual(denied.body, { error: 'NOT_FOUND' });
+          assert.deepEqual(stored.get(actor.foreignId), before);
+        }
+        // A caller-supplied ID may collide, but POST must never overwrite another owner.
+        assert.equal((await invoke({ method: 'POST', authorization,
+          body: { id: actor.foreignId, title: 'OVERWRITE_TEST', body: 'OVERWRITE_BODY' } })).status, 409);
+        assert.deepEqual(stored.get(actor.foreignId), before);
+
+        const created = await invoke({ method: 'POST', authorization, query: spoofed,
+          body: { title: 'OWN_TEST', body: 'OWN_BODY', ...spoofed } });
+        assert.equal(created.status, 201);
+        const id = created.body.id;
+        assert.equal(stored.get(id).owner_id, actor.userId);
+        const path = `/api/notes/${id}`;
+        assert.deepEqual((await invoke({ authorization, url: path })).body,
+          { id, title: 'OWN_TEST', body: 'OWN_BODY' });
+        const updated = await invoke({ method: 'PUT', authorization, url: path,
+          body: { title: 'OWN_UPDATED_TEST', body: 'OWN_UPDATED_BODY' } });
+        assert.equal(updated.status, 200);
+        assert.equal(stored.get(id).owner_id, actor.userId);
+        assert.equal((await invoke({ authorization, url: path })).body.body, 'OWN_UPDATED_BODY');
+        assert.equal((await invoke({ method: 'DELETE', authorization, url: path })).status, 204);
+        assert.equal((await invoke({ authorization, url: path })).status, 404);
+      }
+      assert.equal([...stored.values()].filter(row => row.owner_id === sub).length, 4);
+      assert.equal([...stored.values()].filter(row => row.owner_id === otherUser).length, 1);
+    });
+
+    await t.test('verified UUID subjects remain valid when their letters are uppercase', async () => {
+      const canonicalOwner = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+      const authorization = `Bearer ${await sign({ ...claims, sub: canonicalOwner.toUpperCase() })}`;
+      const created = await invoke({ method: 'POST', authorization,
+        body: { title: 'UUID_CASE_TEST', body: 'UUID_CASE_BODY' } });
+      assert.equal(created.status, 201);
+      const id = created.body.id;
+      assert.equal(stored.get(id).owner_id, canonicalOwner);
+      const path = `/api/notes/${id}`;
+      assert.equal((await invoke({ authorization, url: path })).status, 200);
+      assert.equal((await invoke({ method: 'PUT', authorization, url: path,
+        body: { title: 'UUID_CASE_UPDATED', body: 'UUID_CASE_BODY' } })).status, 200);
+      assert.equal(stored.get(id).owner_id, canonicalOwner);
+      assert.equal((await invoke({ method: 'DELETE', authorization, url: path })).status, 204);
+    });
+
+    await t.test('PUT rejects owner fields without touching either the existing or new owner', async () => {
+      const id = notes[0].id;
+      const before = structuredClone(stored.get(id));
+      const beforeCalls = databaseCalls;
+      for (const owner_id of ['55555555-5555-4555-8555-555555555555', sub, null]) {
+        const result = await invoke({ method: 'PUT', authorization: valid, url: `/api/notes/${id}`,
+          body: { title: 'OWNER_TRANSFER_TEST', body: 'OWNER_TRANSFER_BODY', owner_id } });
+        assert.equal(result.status, 403);
+        assert.deepEqual(result.body, { error: 'OWNER_CHANGE_FORBIDDEN' });
+        assert.deepEqual(stored.get(id), before);
+      }
+      assert.equal(databaseCalls, beforeCalls);
+    });
+
+    await t.test('a stale editor cannot update or delete a row whose owner has changed', async () => {
+      const id = '88888888-8888-4888-8888-888888888888';
+      stored.set(id, { id, title: 'RACE_TEST', content: 'RACE_BODY', owner_id: sub });
+      const path = `/api/notes/${id}`;
+      assert.equal((await invoke({ authorization: valid, url: path })).status, 200);
+      // Model an administrator reassignment after the caller read the row.
+      stored.get(id).owner_id = '55555555-5555-4555-8555-555555555555';
+      const before = structuredClone(stored.get(id));
+      assert.equal((await invoke({ method: 'PUT', authorization: valid, url: path,
+        body: { title: 'STALE_WRITE', body: 'STALE_BODY' } })).status, 404);
+      assert.deepEqual(stored.get(id), before);
+      assert.equal((await invoke({ method: 'DELETE', authorization: valid, url: path })).status, 404);
+      assert.deepEqual(stored.get(id), before);
+      stored.delete(id);
+    });
+
+    await t.test('write success requires the returned new owner to match the verified user', async () => {
+      const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+      try {
+        databaseMode = 'wrong-owner-response';
+        for (const [method, url, body] of [
+          ['POST', '/api/notes', { id, title: 'OWNER_CHECK_TEST', body: 'OWNER_CHECK_BODY' }],
+          ['PUT', `/api/notes/${id}`, { title: 'OWNER_CHECK_UPDATED', body: 'OWNER_CHECK_BODY' }],
+        ]) {
+          const result = await invoke({ method, url, body, authorization: valid });
+          assert.equal(result.status, 502);
+          assert.deepEqual(result.body, { error: 'NOTES_UNAVAILABLE' });
+          assert.ok(!JSON.stringify(result).includes(fakeSecret));
+        }
+      } finally {
+        databaseMode = 'success';
+        stored.delete(id);
+      }
     });
 
     await t.test('invalid routes, JSON, IDs and payloads never reach the DB', async () => {
