@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mountAuthUI } from '../public/auth-ui.js';
 
-const config = { projectUrl: 'https://training.supabase.co', publishableKey: 'sb_publishable_test_fixture' };
 const account = { user: { id: 'TEST_A' }, access_token: 'SDK_SESSION_FIXTURE' };
+const fixtureEmail = ['a', 'example.com'].join('@');
 
 function fixture({ session = null, initialError = null } = {}) {
   const nodes = Object.fromEntries(['login-form', 'login-email', 'login-password', 'login-button',
@@ -53,10 +53,10 @@ function fixture({ session = null, initialError = null } = {}) {
     nodes, calls, sdk, noteCalls,
     setNoteFetch: callback => { noteFetch = callback; },
     change: (...args) => change(...args),
-    mount: async (settings = config) => mountAuthUI({ document, config: settings,
+    mount: async () => mountAuthUI({ document,
       fetch: (...args) => noteFetch(...args),
-      createClient: (url, key, options) => {
-        calls.push({ method: 'createClient', url, key, options });
+      createClient: options => {
+        calls.push({ method: 'createClient', options });
         return sdk;
       },
     }),
@@ -66,21 +66,15 @@ function fixture({ session = null, initialError = null } = {}) {
   };
 }
 
-test('incomplete or invalid public settings disable login without creating a client or requesting Auth', async () => {
-  for (const settings of [{ projectUrl: '', publishableKey: '' },
-    { ...config, projectUrl: '' }, { ...config, publishableKey: '' },
-    { ...config, publishableKey: 'server-only-value' },
-    { ...config, projectUrl: 'http://training.supabase.co' }]) {
-    const f = fixture();
-    await f.mount(settings);
-    assert.deepEqual(f.calls, []);
-    assert.deepEqual(f.noteCalls, []);
-    assert.match(f.nodes.notes.children[0].textContent, /로그인 후/u);
-    assert.equal(f.nodes['auth-status'].textContent, '로그아웃됨');
-    assert.equal(f.nodes['login-button'].disabled, true);
-    assert.equal(f.nodes['logout-button'].hidden, true);
-    assert.match(f.nodes['auth-error'].textContent, /연결 정보가 아직 설정되지/u);
-  }
+test('unavailable server session shows a safe reason without loading notes and permits retry', async () => {
+  const f = fixture({ initialError: { status: 503, message: 'SENSITIVE_REQUEST_DETAILS' } });
+  await f.mount();
+  assert.deepEqual(f.noteCalls, []);
+  assert.match(f.nodes.notes.children[0].textContent, /로그인 후/u);
+  assert.equal(f.nodes['auth-status'].textContent, '로그아웃됨');
+  assert.equal(f.nodes['login-button'].disabled, false);
+  assert.match(f.nodes['auth-error'].textContent, /세션 확인 실패/u);
+  assert.doesNotMatch(f.nodes['auth-error'].textContent, /SENSITIVE_REQUEST_DETAILS/u);
 });
 
 test('SDK sign-in and local sign-out switch the form, button and status; password is cleared', async () => {
@@ -89,20 +83,20 @@ test('SDK sign-in and local sign-out switch the form, button and status; passwor
   assert.equal(f.nodes['auth-status'].textContent, '로그아웃됨');
   assert.equal(f.nodes['login-button'].disabled, false);
   assert.equal(f.noteCalls.length, 0);
-  f.nodes['login-email'].value = ' a@example.com ';
+  f.nodes['login-email'].value = ` ${fixtureEmail} `;
   f.nodes['login-password'].value = 'SYNTHETIC_FORM_INPUT';
   await f.submit();
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(f.calls[1].method, 'signInWithPassword');
-  assert.deepEqual(f.calls[1].input, { email: 'a@example.com', password: 'SYNTHETIC_FORM_INPUT' });
+  assert.deepEqual(f.calls[1].input, { email: fixtureEmail, password: 'SYNTHETIC_FORM_INPUT' });
   assert.equal(f.nodes['auth-status'].textContent, '로그인됨');
   assert.equal(f.nodes['login-form'].hidden, true);
   assert.equal(f.nodes['logout-button'].hidden, false);
   assert.equal(f.nodes['login-password'].value, '');
   assert.equal(f.noteCalls.length, 1);
   assert.equal(f.noteCalls[0].url, '/api/notes');
-  assert.equal(f.noteCalls[0].options.headers.Authorization, `Bearer ${account.access_token}`);
-  assert.equal(f.noteCalls[0].options.credentials, 'omit');
+  assert.equal(f.noteCalls[0].options.headers?.Authorization, undefined);
+  assert.equal(f.noteCalls[0].options.credentials, 'same-origin');
   assert.equal(f.nodes.notes.children.length, 4);
   await f.logout();
   assert.deepEqual(f.calls[2], { method: 'signOut', options: { scope: 'local' } });
@@ -191,7 +185,8 @@ test('token refresh reloads notes and denied API responses never render note dat
   });
   f.change('TOKEN_REFRESHED', { ...account, access_token: 'REFRESHED_SDK_FIXTURE' });
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(next.options.headers.Authorization, 'Bearer REFRESHED_SDK_FIXTURE');
+  assert.equal(next.options.headers?.Authorization, undefined);
+  assert.equal(next.options.credentials, 'same-origin');
   assert.match(f.nodes.notes.children[0].textContent, /로그인 확인에 실패/u);
   assert.equal(f.nodes.notes.children.length, 1);
   assert.equal(f.nodes['auth-status'].textContent, '로그인됨');
@@ -205,7 +200,8 @@ test('memo editor creates, loads for editing, updates and deletes through authen
   f.setNoteFetch(async (url, options) => {
     const method = options.method ?? 'GET';
     requests.push({ url, method, options });
-    assert.equal(options.headers.Authorization, `Bearer ${account.access_token}`);
+    assert.equal(options.headers?.Authorization, undefined);
+    assert.equal(options.credentials, 'same-origin');
     const response = data => ({ ok: true, status: 200, json: async () => structuredClone(data) });
     if (method === 'POST') {
       const input = JSON.parse(options.body);

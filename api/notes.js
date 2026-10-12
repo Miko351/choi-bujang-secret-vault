@@ -1,17 +1,31 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { createLoginVerifier } from '../src/verify-login.mjs';
+import { readSessionCookies, sameOrigin } from '../src/session-cookies.mjs';
+import authHandler from '../src/auth-handler.mjs';
 import config from '../aleph.config.json' with { type: 'json' };
 
 // Reuse the starter verifier and its JWKS cache within this server runtime.
 let runtime;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 export default async function handler(request, response) {
+  let path;
+  try { path = new URL(request.url ?? '/api/notes', 'http://route.invalid').pathname; } catch { /* Existing route validation handles this below. */ }
+  if (path?.startsWith('/api/auth') || (path === '/api/notes' && request.query?.authAction !== undefined)) {
+    const action = request.query?.authAction;
+    return authHandler({ method: request.method, headers: request.headers, body: request.body,
+      url: path.startsWith('/api/auth') ? request.url : `/api/auth/${typeof action === 'string' ? action : 'invalid'}` }, response);
+  }
   response.setHeader('Cache-Control', 'no-store');
   response.setHeader('X-Content-Type-Options', 'nosniff');
-  const authorization = request.headers?.authorization;
+  const fromCookie = request.headers?.authorization === undefined;
+  const access = fromCookie ? readSessionCookies(request).access : undefined;
+  const authorization = fromCookie && access ? `Bearer ${access}` : request.headers?.authorization;
   if (typeof authorization !== 'string' || !authorization.trim()) {
     return response.status(401).json({ error: 'LOGIN_REQUIRED' });
+  }
+  if (fromCookie && !['GET', 'HEAD'].includes(request.method) && !sameOrigin(request, config)) {
+    return response.status(403).json({ error: 'ORIGIN_FORBIDDEN' });
   }
 
   const url = process.env.SUPABASE_URL;

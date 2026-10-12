@@ -1,15 +1,4 @@
-import { authConfig } from './auth-config.js';
-
-function validConfig(config) {
-  try {
-    const url = new URL(config.projectUrl);
-    return url.protocol === 'https:' && !url.username && !url.password &&
-      !url.search && !url.hash && url.pathname === '/' &&
-      /^sb_publishable_[A-Za-z0-9_-]+$/u.test(config.publishableKey);
-  } catch {
-    return false;
-  }
-}
+import { createServerAuthClient } from './auth-client.js';
 
 function failureReason(error) {
   const reasons = {
@@ -33,7 +22,7 @@ function failureReason(error) {
   return '인증 요청을 처리하지 못했습니다. 프로젝트 설정을 확인한 뒤 다시 시도해 주세요.';
 }
 
-export async function mountAuthUI({ document, createClient, config, fetch: fetchNotes = globalThis.fetch }) {
+export async function mountAuthUI({ document, createClient = createServerAuthClient, fetch: fetchNotes = globalThis.fetch }) {
   const form = document.querySelector('#login-form');
   const email = document.querySelector('#login-email');
   const password = document.querySelector('#login-password');
@@ -54,7 +43,7 @@ export async function mountAuthUI({ document, createClient, config, fetch: fetch
   let busy = true;
   let noteRevision = 0;
   let noteRequest;
-  let noteToken = null;
+  let noteUser = null;
   let currentSession = null;
   let activeUser = null;
   let sessionRevision = 0;
@@ -66,7 +55,7 @@ export async function mountAuthUI({ document, createClient, config, fetch: fetch
 
   const syncNoteControls = () => {
     for (const control of [noteTitle, noteBody, noteSave, noteCancel, ...cardButtons]) {
-      control.disabled = mutationBusy || busy || !noteToken;
+      control.disabled = mutationBusy || busy || !noteUser;
     }
     noteForm.setAttribute('aria-busy', String(mutationBusy));
   };
@@ -86,25 +75,24 @@ export async function mountAuthUI({ document, createClient, config, fetch: fetch
     notes.replaceChildren(item);
   };
   const refreshNotes = (session, force = false) => {
-    const token = session?.user && typeof session.access_token === 'string' && session.access_token
-      ? session.access_token : null;
-    if (token && token === noteToken && !force) return;
-    noteToken = token;
+    const user = session?.user && typeof session.user.id === 'string' ? session.user.id : null;
+    if (user && user === noteUser && !force) return;
+    noteUser = user;
     const revision = ++noteRevision;
     noteRequest?.abort();
-    if (!token) {
+    if (!user) {
       noteMessage('로그인 후 자료를 볼 수 있습니다.');
       return;
     }
     const controller = new AbortController();
     noteRequest = controller;
     noteMessage('메모를 불러오는 중입니다.');
-    // Use the SDK session token only as input to server verification, never as proof.
+    // Server verifies the HttpOnly cookie. UI state is never an authorization claim.
     void (async () => {
       try {
         const response = await fetchNotes('/api/notes', {
-          cache: 'no-store', credentials: 'omit', redirect: 'error',
-          headers: { Authorization: `Bearer ${token}` }, signal: controller.signal,
+          cache: 'no-store', credentials: 'same-origin', redirect: 'error',
+          signal: controller.signal,
         });
         if (revision !== noteRevision) return;
         if (response.status === 401) {
@@ -173,7 +161,7 @@ export async function mountAuthUI({ document, createClient, config, fetch: fetch
   };
 
   const noteOperation = async (method, id, input) => {
-    if (!signedIn || !noteToken || mutationBusy || busy) return null;
+    if (!signedIn || !noteUser || mutationBusy || busy) return null;
     const revision = sessionRevision;
     const controller = new AbortController();
     mutationRequest = controller;
@@ -182,8 +170,8 @@ export async function mountAuthUI({ document, createClient, config, fetch: fetch
     noteStatus.textContent = '요청을 처리하는 중입니다.';
     try {
       const response = await fetchNotes(id ? `/api/notes/${encodeURIComponent(id)}` : '/api/notes', {
-        method, cache: 'no-store', credentials: 'omit', redirect: 'error', signal: controller.signal,
-        headers: { Authorization: `Bearer ${noteToken}`, ...(input ? { 'Content-Type': 'application/json' } : {}) },
+        method, cache: 'no-store', credentials: 'same-origin', redirect: 'error', signal: controller.signal,
+        headers: { ...(input ? { 'Content-Type': 'application/json' } : {}) },
         ...(input ? { body: JSON.stringify(input) } : {}),
       });
       if (revision !== sessionRevision) return null;
@@ -271,10 +259,6 @@ export async function mountAuthUI({ document, createClient, config, fetch: fetch
   };
 
   render(null);
-  if (!validConfig(config)) {
-    showError('로그인 연결 정보가 아직 설정되지 않았습니다. 공개 Project URL과 publishable key를 설정하면 사용할 수 있습니다.');
-    return;
-  }
   if (typeof createClient !== 'function') {
     showError('로그인 SDK를 불러오지 못했습니다. 페이지를 새로 고침해 주세요.');
     return;
@@ -282,9 +266,8 @@ export async function mountAuthUI({ document, createClient, config, fetch: fetch
 
   let client;
   try {
-    client = createClient(config.projectUrl, config.publishableKey, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
-    });
+    client = createClient({ fetch: fetchNotes });
+    fetchNotes = client.fetch ?? fetchNotes;
   } catch {
     showError('로그인 연결 정보를 확인해 주세요.');
     return;
@@ -335,6 +318,7 @@ export async function mountAuthUI({ document, createClient, config, fetch: fetch
     stateChanges++;
     if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') showError('');
     render(session);
+    if (event === 'TOKEN_REFRESHED' && session?.user) refreshNotes(session, true);
   });
   const initialRevision = stateChanges;
   try {
@@ -351,7 +335,5 @@ export async function mountAuthUI({ document, createClient, config, fetch: fetch
 if (globalThis.document) {
   await mountAuthUI({
     document: globalThis.document,
-    createClient: globalThis.supabase?.createClient,
-    config: authConfig,
   });
 }

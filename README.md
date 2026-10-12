@@ -2,6 +2,20 @@
 
 이 저장소는 방어전 R5 시작 틀에서 출발했습니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
+## 5단계 공개 키 제거 가점 · 구현
+
+기본 상태에서 학생이 A의 네 메모와 B의 한 시험 메모 목록 분리, A/B 각각의 정상 CRUD를 확인했습니다. 공개 키로 원본 메모 테이블을 읽은 실제 요청은 401 JSON 권한 오류 42501이며 메모를 반환하지 않았습니다. 5단계 커밋 `1827f9d`의 GitHub push·Vercel 배포와 배포 식별 일치, 무로그인 401 JSON·nosniff를 확인한 뒤 가점 작업을 시작했습니다. 실제 A/B 상대 ID의 한 건 접근 요청은 여전히 별도 미실행입니다.
+
+화면에서 Supabase 공개 연결 파일과 브라우저 SDK를 제거했습니다. 로그인·로그아웃·세션 확인·갱신은 `/api/auth/login`, `/api/auth/logout`, `/api/auth/session`, `/api/auth/refresh`로 요청하며 Vercel rewrite가 기존 `api/notes.js` 하나로 모읍니다. 서버 Auth 처리는 `src/auth-handler.mjs`에서 공식 SDK의 `signInWithPassword`, `refreshSession`, `setSession`, `signOut({scope: 'local'})`을 사용합니다. 새 서버 환경변수는 필요 없으며 기존 서버 전용 URL·키를 사용합니다. 로그인 JSON 응답에는 검증된 사용자 UUID만 포함하고 키·비밀번호·세션 토큰을 넣지 않습니다. 실패는 허용 목록의 오류 코드만 전달해 화면에서 안전한 이유를 표시합니다.
+
+SDK가 발급한 세션은 Secure·HttpOnly·SameSite=Lax·Path=/·Domain 없는 `__Host-` 쿠키 두 개로 전달하며 브라우저 JS가 토큰을 읽거나 만들지 않습니다. 갱신과 로그인·로그아웃은 브라우저에서 같은 세션 잠금으로 직렬화해 늦은 갱신 응답이 로그아웃 쿠키를 다시 살리지 않게 합니다. 다른 탭과 상태 변경은 토큰 없는 알림과 서버 재확인으로 반영합니다. 새 버전에서는 기존 SDK 저장 세션을 가져오지 않으므로 같은 시험 계정으로 다시 로그인해야 합니다.
+
+메모 API는 Cookie 토큰도 변경하지 않은 `src/verify-login.mjs`에 전달해 검증하며 기존 Bearer 학생·심판 요청도 유지합니다. 쿠키를 사용하는 변경 요청과 Auth POST는 같은 출처 Origin을 확인합니다. 브라우저 userId·role·owner_id는 권한 근거로 쓰지 않고 기존 소유자 조건·CRUD 응답 계약·service_role DB 접속을 유지합니다. RLS와 DB 권한·메모 자료는 변경하지 않았습니다. `allowedRoutes`에 기존 자료 경로 다섯 개와 실제 Auth 경로 네 개를 기록하고 `judgeIssuer`·원본 자료 경로·기본 판정 규칙은 보존합니다.
+
+검증 명령: `node --test test/auth.test.mjs test/auth-ui.test.mjs test/notes.test.mjs test/r5.test.mjs test/package-starter.test.mjs`. 새 배포에서 **A 로그인 → 조회 → 추가 → 수정 → 삭제 → 로그아웃 → B 로그인**을 다시 확인합니다. 자기 자료는 정상이고 상대 자료는 404, 무로그인은 401 JSON이어야 합니다. 첫 화면·현재 JS·폐기한 연결 파일에 공개 키가 남지 않아야 합니다. 로그인 문제가 확인되면 이번 가점 변경 파일만 이전 기본 통과 커밋 `1827f9d`로 되돌리고 학습 DB 자료와 다른 작업을 보존합니다. 과거 공개 커밋·옛 배포의 노출은 해소됐다고 기록하지 않습니다.
+
+가점의 로컬 시험 44개와 `npm run build -- --local`이 통과했습니다. 실제 서버 SDK·시작 틀 도우미를 합성 계정과 모의 Auth 서버로 시험해 로그인 쿠키·갱신·로그아웃·요청별 세션 분리·쿠키 CRUD·다른 출처 거부·늦은 갱신과 로그아웃 순서를 확인했습니다. 기존 심판 Bearer 흐름과 시작 틀 서버 함수 기준표도 유지합니다. 이 새 로그인 방식의 실제 A/B 재시험은 확인 대기이며 기존 방식의 성공 보고로 대신하지 않습니다.
+
 ## 5단계 저장점 · 2026-10-12
 
 브라우저의 메모 목록·한 건 읽기·추가·수정·삭제는 기존 서버 함수 `/api/notes`와 `/api/notes/:id`만 호출합니다. Supabase 자료를 직접 읽거나 고치는 브라우저 호출은 없어서 화면 코드는 수정하지 않았습니다. 공식 SDK의 로그인·로그아웃·세션 갱신 Auth 호출은 유지합니다. 서버는 기존 환경변수 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`와 변경하지 않은 `src/verify-login.mjs`로 로그인과 소유자를 검사하며 자료 API 계약도 보존합니다.

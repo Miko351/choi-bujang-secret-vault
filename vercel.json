@@ -12,6 +12,7 @@
     }
   ],
   "rewrites": [
-    { "source": "/api/notes/:id", "destination": "/api/notes?noteId=:id" }
+    { "source": "/api/notes/:id", "destination": "/api/notes?noteId=:id" },
+    { "source": "/api/auth/:action", "destination": "/api/notes?authAction=:action" }
   ]
 }

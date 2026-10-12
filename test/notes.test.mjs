@@ -142,6 +142,27 @@ test('notes API uses the unchanged starter verifier before every note query', as
       assert.ok(!JSON.stringify(result).includes(sub));
     });
 
+    await t.test('cookie requests use the unchanged verifier, retain own CRUD and reject cross-site writes', async () => {
+      const authorization = await sign(claims);
+      const headers = { cookie: `__Host-vault-access=${authorization}`, origin: config.publicAppUrl };
+      const list = await invoke({ headers });
+      assert.equal(list.status, 200);
+      assert.equal(list.body.length, 4);
+      const before = databaseCalls;
+      const id = '88888888-8888-4888-8888-888888888888';
+      assert.equal((await invoke({ method: 'POST', headers: { ...headers, origin: 'https://other.invalid' },
+        body: { id, title: 'COOKIE_TEST', body: 'COOKIE_BODY' } })).status, 403);
+      assert.equal(databaseCalls, before);
+      assert.equal((await invoke({ method: 'POST', headers, body: { id, title: 'COOKIE_TEST', body: 'COOKIE_BODY' } })).status, 201);
+      assert.equal(stored.get(id).owner_id, sub);
+      assert.equal((await invoke({ method: 'PUT', url: `/api/notes/${id}`, headers,
+        body: { title: 'COOKIE_UPDATED', body: 'COOKIE_BODY' } })).status, 200);
+      assert.equal((await invoke({ method: 'DELETE', url: `/api/notes/${id}`, headers })).status, 204);
+      assert.equal((await invoke({ url: `/api/notes/${id}`, headers })).status, 404);
+      assert.equal((await invoke({ authorization: 'Bearer invalid', headers })).status, 401);
+      assert.equal((await invoke({ headers: { cookie: '__Host-vault-access=unverified' } })).status, 401);
+    });
+
     await t.test('the starter judge A flow is preserved', async () => {
       const authorization = `Bearer ${await sign({
         ...claims, iss: config.judgeIssuer, aud: new URL(config.publicAppUrl).hostname,

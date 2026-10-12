@@ -64,7 +64,8 @@ test('later builds remove static data, retain deployment metadata and reject sou
       await writeFile(join(directory, 'aleph.config.json'), JSON.stringify({ ...config, step }));
       await writeFile(output, JSON.stringify({ notes: [{ content: 'STALE_TEST_CONTENT' }] }));
       assert.equal(build().status, 0);
-      assert.ok((await readFile(join(directory, 'public/vendor/supabase.js'))).length > 0);
+      if (step >= 5) await assert.rejects(readFile(join(directory, 'public/vendor/supabase.js')), { code: 'ENOENT' });
+      else assert.ok((await readFile(join(directory, 'public/vendor/supabase.js'))).length > 0);
       await assert.rejects(readFile(output), { code: 'ENOENT' });
       const identity = JSON.parse(await readFile(join(directory, 'public/aleph.json'), 'utf8'));
       assert.equal(identity.step, step);
