@@ -1,7 +1,8 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4, 5].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  const ownerStage = config.step === 4 || config.step === 5;
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -11,6 +12,21 @@ export async function runAttackChecks(config) {
   if (app.protocol !== 'https:' || app.username || app.password || app.search || app.hash
       || app.pathname !== '/' || app.hostname.endsWith('.example')) {
     throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
+  }
+  if (config.step === 5) {
+    let original;
+    let issuer;
+    try {
+      original = new URL(config.originalApiUrl);
+      issuer = new URL(config.identityProvider?.issuer);
+    } catch {
+      throw new Error('5단계 원본 자료 HTTPS 경로를 확인해 주세요.');
+    }
+    if (original.protocol !== 'https:' || original.username || original.password
+        || original.search || original.hash || original.port
+        || original.origin !== issuer.origin || original.pathname !== '/rest/v1/vault_notes') {
+      throw new Error('5단계 원본 자료 경로는 같은 Supabase 프로젝트의 쿼리 없는 HTTPS 메모 테이블 주소여야 합니다.');
+    }
   }
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
   const response = await fetch(new URL('/data.json', app), {
@@ -26,7 +42,7 @@ export async function runAttackChecks(config) {
       // A non-JSON response is a failed check, not a successful deployment.
     }
   }
-  if (config.step === 3 || config.step === 4) {
+  if (config.step === 3 || ownerStage) {
     const results = [{ attackId: 'anonymous_static_note_read', expected: '정적 /data.json 파일 없음',
       observed: response.status === 404 ? '정적 자료 요청이 HTTP 404로 거부됨'
         : `정적 자료 제거 점검 실패 (HTTP ${response.status})` }];
@@ -34,7 +50,7 @@ export async function runAttackChecks(config) {
     for (const [method, path] of [
       ['GET', '/api/notes'], ['POST', '/api/notes'],
       ['PUT', '/api/notes/not-a-uuid'], ['DELETE', '/api/notes/not-a-uuid'],
-      ...(config.step === 4 ? [['GET', '/api/notes/not-a-uuid']] : []),
+      ...(ownerStage ? [['GET', '/api/notes/not-a-uuid']] : []),
     ]) {
       let observed;
       try {
@@ -44,25 +60,25 @@ export async function runAttackChecks(config) {
             ? { headers: { 'Content-Type': 'application/json' }, body: '{}' } : {}),
         });
         let jsonDenial = false;
-        if (config.step === 4 && /^application\/json(?:\s*;|$)/iu.test(result.headers.get('content-type') ?? '')) {
+        if (ownerStage && /^application\/json(?:\s*;|$)/iu.test(result.headers.get('content-type') ?? '')) {
           try {
             const data = await result.json();
             jsonDenial = data && !Array.isArray(data) && Object.keys(data).join(',') === 'error'
               && typeof data.error === 'string' && data.error.length > 0;
           } catch { /* HTML or invalid JSON must not count as a JSON denial. */ }
         }
-        const denied = config.step === 4
+        const denied = ownerStage
           ? [401, 403].includes(result.status) && jsonDenial : result.status === 401;
-        observed = denied ? `비로그인 ${method} 요청이 HTTP ${result.status}${config.step === 4 ? ' JSON 오류로' : '로'} 거부됨`
+        observed = denied ? `비로그인 ${method} 요청이 HTTP ${result.status}${ownerStage ? ' JSON 오류로' : '로'} 거부됨`
           : `비로그인 ${method} 거부 점검 실패 (HTTP ${result.status})`;
         if (!result.bodyUsed) await result.body?.cancel();
       } catch {
         observed = `비로그인 ${method} 점검 요청 실패`;
       }
       results.push({ attackId: `anonymous_note_${method.toLowerCase()}${path.endsWith('not-a-uuid') && method === 'GET' ? '_single' : ''}`,
-        expected: `비로그인 ${method} 요청은 자료 없이 HTTP ${config.step === 4 ? '401/403 JSON 오류' : '401'}`, observed });
+        expected: `비로그인 ${method} 요청은 자료 없이 HTTP ${ownerStage ? '401/403 JSON 오류' : '401'}`, observed });
     }
-    if (config.step === 4) {
+    if (ownerStage) {
       let identityObserved;
       try {
         const identityResponse = await fetch(new URL('/aleph.json', app), {
@@ -74,7 +90,7 @@ export async function runAttackChecks(config) {
           ? `HTTP ${identityResponse.status}, 배포 단계 ${identity.step}, 커밋 ${identity.commit}; 설정 단계·저장소 ${identity.step === config.step && identity.repoUrl?.toLowerCase() === config.repoUrl?.toLowerCase() ? '일치' : '불일치'}`
           : `배포 식별 점검 실패 (HTTP ${identityResponse.status})`;
       } catch { identityObserved = '배포 식별 점검 요청 실패'; }
-      results.push({ attackId: 'deployment_identity', expected: '/aleph.json 200, 4단계와 같은 저장소; 제출 커밋 대조 필요', observed: identityObserved });
+      results.push({ attackId: 'deployment_identity', expected: `/aleph.json 200, ${config.step}단계와 같은 저장소; 제출 커밋 대조 필요`, observed: identityObserved });
       let headerObserved;
       try {
         const page = await fetch(app, {
@@ -85,6 +101,21 @@ export async function runAttackChecks(config) {
         await page.body?.cancel();
       } catch { headerObserved = '첫 화면 보안 헤더 점검 요청 실패'; }
       results.push({ attackId: 'document_security_header', expected: '첫 화면 HTTP 200, X-Content-Type-Options: nosniff', observed: headerObserved });
+      if (config.step === 5) {
+        results.push(
+          { attackId: 'authenticated_a_note_crud', expected: '직접 DB 권한 회수 후에도 A의 화면 조회·추가·수정·삭제 성공',
+            observed: '미실행: 이번 자동 점검은 실제 A 로그인 요청을 보내지 않음. 사용자 화면 성공 보고는 README와 설명에 별도 기록' },
+          { attackId: 'authenticated_b_note_crud', expected: '직접 DB 권한 회수 후에도 B의 본인 메모 CRUD 성공',
+            observed: '미실행: 실제 B 로그인 요청을 보내지 않음' },
+          { attackId: 'cross_owner_access', expected: '타인 GET·PUT·DELETE 404, PUT owner_id 변경 403; 자료와 소유자 보존',
+            observed: '미실행: 실제 A/B 교차 접근·소유자 변경 요청을 보내지 않음' },
+          { attackId: 'database_direct_privilege', expected: 'PUBLIC·anon·authenticated의 메모 테이블 직접 권한 없음; service_role CRUD 유지',
+            observed: '미실행: 도구로 DB 권한을 조회하지 않음. 사용자 권한 결과 화면 확인은 README와 설명에 별도 기록' },
+          { attackId: 'anonymous_original_note_read', expected: '원본 자료 경로에 anon 키로 직접 요청하면 자료 없이 거부',
+            observed: '미실행: 원본 anon 키 요청은 심판 확인 항목. 학생 자기 점검에서 키를 요청하거나 원본에 보내지 않음' },
+        );
+        return results;
+      }
       results.push(
         { attackId: 'authenticated_ab_own_crud', expected: 'A/B 각각 본인 목록·한 건 조회·추가·수정·삭제 성공, 삭제 뒤 GET 404',
           observed: '미실행: 실제 A/B 로그인 시험 필요. 로컬 모의 시험 결과를 실제 요청으로 기록하지 않음' },

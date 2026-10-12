@@ -2,6 +2,24 @@
 
 이 저장소는 방어전 R5 시작 틀에서 출발했습니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
+## 5단계 저장점 · 2026-10-12
+
+브라우저의 메모 목록·한 건 읽기·추가·수정·삭제는 기존 서버 함수 `/api/notes`와 `/api/notes/:id`만 호출합니다. Supabase 자료를 직접 읽거나 고치는 브라우저 호출은 없어서 화면 코드는 수정하지 않았습니다. 공식 SDK의 로그인·로그아웃·세션 갱신 Auth 호출은 유지합니다. 서버는 기존 환경변수 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`와 변경하지 않은 `src/verify-login.mjs`로 로그인과 소유자를 검사하며 자료 API 계약도 보존합니다.
+
+학생이 검토·실행할 학습용 SQL을 제안했고, 이후 학생의 권한 결과 화면에서 `public.vault_notes`의 PUBLIC·anon·authenticated CRUD가 모두 false, service_role CRUD는 모두 true인 것을 확인했습니다. 화면 오른쪽의 일부 권한은 잘렸으므로 모든 권한을 독립적으로 조회한 결과로 기록하지 않습니다. 학생은 권한 회수 후 A 로그인·조회·추가·수정·삭제가 모두 문제없이 된다고 확인했습니다. 이는 사용자 화면 보고이며 도구가 실제 A 요청을 보낸 결과나 심판 판정은 아닙니다. B의 본인 CRUD·A/B 교차 접근·원본 anon 키 직접 요청은 미실행입니다. 다른 테이블과 메모 행은 이번 코드 작업에서 변경하지 않았습니다.
+
+저장점 설정 대조: `step`은 5, 저장소·실제 Vercel 주소와 Supabase 발급자·대상·JWKS 주소는 기존 값입니다. `originalApiUrl`은 같은 프로젝트의 쿼리 없는 HTTPS 경로 `https://ytvrtibeicludqdgeltt.supabase.co/rest/v1/vault_notes`입니다. `allowedRoutes`는 `GET /api/notes`, `POST /api/notes`, `GET /api/notes/:id`, `PUT /api/notes/:id`, `DELETE /api/notes/:id` 다섯 개입니다. `judgeIssuer`와 `restoreRoute: null`, 구현된 기본 거부 규칙 `starter.deny`는 보존합니다. API 로그인 검사를 판정기 규칙으로 추가하지 않았습니다.
+
+서버 전용 키의 DB 역할은 service_role이며 RLS를 우회하므로 서버 함수의 로그인·소유자 검사를 계속 유지합니다. 기존 RLS·소유자 정책은 삭제하지 않았고 학생이 실행한 SQL은 이 메모 테이블의 직접 권한 회수만 대상으로 했습니다. 권한 회수 SQL과 결과에 메모 본문·비밀값을 포함하지 않으며 원본 anon 키 요청은 심판 확인으로 남깁니다.
+
+다시 실행: `npm run bundle`. 자기 점검은 정적 `/data.json` 제거, 무로그인 메모 목록·한 건 GET·POST·PUT·DELETE의 JSON 거부, 배포 `/aleph.json`, 첫 화면의 nosniff 헤더에 실제 요청을 보냅니다. 유효한 메모 쓰기를 시도하지 않고 응답 메모 본문을 기록하지 않습니다. 실제 A/B 요청과 DB 조회 및 원본 anon 키 요청은 실행하지 않은 것으로 남기며 사용자 확인은 설명에서 구분합니다. 이 JSON 생성은 학생 자기 점검이며 심판 통과를 의미하지 않습니다.
+
+화면 재확인: 최신 배포에서 **A 로그인 → 메모 조회 → 추가 → 수정 → 삭제 → 로그아웃 → B 로그인**을 누릅니다. 본인 CRUD는 정상이어야 하며 상대 ID의 GET·PUT·DELETE는 404, PUT의 소유자 변경은 403, 무로그인은 자료 없는 401 JSON 오류여야 합니다. 권한 확인 SQL을 적용 전후 실행해 세 클라이언트 역할의 실제 권한이 모두 false이고 서버 CRUD는 true인지 대조합니다. 새 5단계 코드 배포 후에도 A/B 시험을 반복합니다.
+
+4단계 커밋 `cdbce35`는 이후 GitHub push와 Vercel 배포가 완료됐고 공개 `/aleph.json`에서 같은 커밋·4단계를 확인했습니다. 아래 과거 절의 배포·SQL·시험 상태는 당시 기록입니다. 이번 5단계 요청은 로컬 커밋과 묶음 생성이며 push·새 배포는 실행하지 않습니다. 실제 배포 식별 결과가 4단계이면 5단계 저장점 배포와 재점검이 필요합니다. `bundle-notes.json`과 `artifacts/submission.json`은 커밋하지 않으며 옛 공개 커밋·옛 배포가 남는 동안 과거 노출이 해소됐다고 기록하지 않습니다.
+
+저장점 로컬 검증은 `node --test test/notes.test.mjs test/auth-ui.test.mjs test/r5.test.mjs test/package-starter.test.mjs` 시험 35개와 `npm run build -- --local`이 통과했습니다. 5단계 빌드도 정적 자료 파일을 제거하고 배포 식별 자동 생성을 보존하는 것을 시험했습니다. 자기 점검의 원본 경로 검증·원본 키 요청 미실행·사용자 확인과 자동 요청 결과 구분을 확인했습니다. 서버 로그인 도우미·자료 함수·화면과 기존 DB 권한 SQL 파일은 변경하지 않았습니다.
+
 ## 4단계 저장점 · 2026-10-12
 
 자료 API의 소유자 검사를 구현했습니다. 로그인 검증은 시작 틀의 `src/verify-login.mjs`를 그대로 사용합니다. URL·쿼리·본문의 `owner_id`, `userId`, `role`을 소유자 판단에 사용하지 않으며 검증된 사용자 ID만 DB 조건에 넣습니다. 목록과 한 건 GET은 그 ID와 `owner_id`가 일치하는 행만 반환합니다. 타인 메모의 GET·PUT·DELETE는 자료 없이 404 `NOT_FOUND`로 거부합니다. 메모가 없는 경우와 같은 응답입니다.

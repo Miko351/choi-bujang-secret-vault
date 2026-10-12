@@ -36,7 +36,7 @@ test('build identity uses Vercel Git and deployment metadata', () => {
 });
 
 test('later stage identity records the configured stage and validates its range', () => {
-  for (const step of [2, 3, 12]) assert.equal(deploymentIdentity(env, { ...config, step }).step, step);
+  for (const step of [2, 3, 4, 5, 12]) assert.equal(deploymentIdentity(env, { ...config, step }).step, step);
   for (const step of [0, 13, 2.5, '2']) assert.throws(() => deploymentIdentity(env, { ...config, step }));
 });
 
@@ -60,7 +60,7 @@ test('later builds remove static data, retain deployment metadata and reject sou
     });
     const output = join(directory, 'public/data.json');
     await mkdir(join(directory, 'public'));
-    for (const step of [2, 3, 12]) {
+    for (const step of [2, 3, 4, 5, 12]) {
       await writeFile(join(directory, 'aleph.config.json'), JSON.stringify({ ...config, step }));
       await writeFile(output, JSON.stringify({ notes: [{ content: 'STALE_TEST_CONTENT' }] }));
       assert.equal(build().status, 0);
@@ -210,6 +210,52 @@ test('fourth stage self-check rejects HTML denials and reports stale deployments
       for (const result of failed.slice(1, 6)) assert.match(result.observed, /점검 실패/u);
       assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_TEST_CONTENT/u);
     }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('fifth stage validates the original route without sending it keys or treating user reports as automatic checks', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const fifthConfig = { ...config, step: 5,
+    repoUrl: 'https://github.com/student-a/aleph-defense',
+    identityProvider: { issuer: 'https://training.supabase.co/auth/v1' },
+    originalApiUrl: 'https://training.supabase.co/rest/v1/vault_notes' };
+  try {
+    globalThis.fetch = async (url, options) => {
+      const target = new URL(url);
+      calls.push({ target, options });
+      assert.equal(target.origin, new URL(fifthConfig.publicAppUrl).origin);
+      if (target.pathname === '/data.json') return new Response(null, { status: 404 });
+      if (target.pathname === '/aleph.json') return Response.json({ step: 5,
+        repoUrl: fifthConfig.repoUrl, commit: 'b'.repeat(40) });
+      if (target.pathname === '/') return new Response(null, { headers: { 'X-Content-Type-Options': 'nosniff' } });
+      return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 403 });
+    };
+    const results = await runAttackChecks(fifthConfig);
+    assert.equal(calls.length, 8);
+    assert.equal(results.length, 13);
+    assert.equal(new Set(results.map(item => item.attackId)).size, results.length);
+    for (const item of results.slice(1, 6)) assert.match(item.observed, /HTTP 403 JSON 오류/u);
+    assert.match(results[6].expected, /5단계/u);
+    assert.match(results[6].observed, /배포 단계 5.*일치/u);
+    for (const item of results.slice(8)) assert.match(item.observed, /^미실행/u);
+    assert.match(results.find(item => item.attackId === 'database_direct_privilege').expected, /PUBLIC·anon·authenticated/u);
+    assert.match(results.find(item => item.attackId === 'anonymous_original_note_read').observed, /심판 확인 항목/u);
+    for (const { options } of calls) {
+      assert.equal(options.headers?.Authorization, undefined);
+      assert.equal(options.headers?.apikey, undefined);
+      if (['POST', 'PUT'].includes(options.method)) assert.equal(options.body, '{}');
+    }
+    for (const originalApiUrl of [null,
+      'http://training.supabase.co/rest/v1/vault_notes',
+      `${fifthConfig.originalApiUrl}?select=id`,
+      `${fifthConfig.originalApiUrl}#fragment`,
+      'https://other.supabase.co/rest/v1/vault_notes',
+      'https://training.supabase.co/rest/v1/other_table',
+    ]) await assert.rejects(runAttackChecks({ ...fifthConfig, originalApiUrl }), /5단계 원본/u);
+    assert.equal(calls.length, 8);
   } finally {
     globalThis.fetch = originalFetch;
   }
