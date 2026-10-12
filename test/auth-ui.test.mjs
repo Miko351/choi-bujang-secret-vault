@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mountAuthUI } from '../public/auth-ui.js';
-import { authConfig } from '../public/auth-config.js';
 
 const config = { projectUrl: 'https://training.supabase.co', publishableKey: 'sb_publishable_test_fixture' };
 const account = { user: { id: 'TEST_A' }, access_token: 'SDK_SESSION_FIXTURE' };
@@ -67,9 +66,10 @@ function fixture({ session = null, initialError = null } = {}) {
   };
 }
 
-test('blank public settings disable login without creating a client or requesting Auth', async () => {
-  assert.deepEqual(authConfig, { projectUrl: '', publishableKey: '' });
-  for (const settings of [authConfig, { ...config, publishableKey: 'server-only-value' },
+test('incomplete or invalid public settings disable login without creating a client or requesting Auth', async () => {
+  for (const settings of [{ projectUrl: '', publishableKey: '' },
+    { ...config, projectUrl: '' }, { ...config, publishableKey: '' },
+    { ...config, publishableKey: 'server-only-value' },
     { ...config, projectUrl: 'http://training.supabase.co' }]) {
     const f = fixture();
     await f.mount(settings);
