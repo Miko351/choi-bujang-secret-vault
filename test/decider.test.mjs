@@ -7,6 +7,32 @@ import { fixtureRequests } from '../scripts/fixture-7.mjs';
 import { checkDecider } from '../scripts/decider-test.mjs';
 import { RESOURCE_IDS, resourceIdForService, resourceIdForApiPath, resourceRouteForRequest } from '../src/decider.mjs';
 
+test('v1 decider denies every notice write even with a configured editor and fresh confirmation', async () => {
+  const saved = process.env.VAULT_ZONE_POLICY;
+  const { normal } = fixtureRequests();
+  const id = randomUUID();
+  try {
+    process.env.VAULT_ZONE_POLICY = JSON.stringify({ version: 1, noteOwners: [],
+      noticeEditors: [{ classId: normal.classId, projectId: normal.projectId,
+        subjectId: normal.subjectId, id }], apiNoticeEditors: [] });
+    for (const method of ['PUT', 'POST', 'PATCH', 'DELETE']) {
+      for (const service of ['notices', 'instructor-notices', 'announcements', 'instructor-materials']) {
+        for (const base of [`/${service}`, `/api/${service}`]) {
+          for (const leaf of ['', `/${id}`]) {
+            const result = await decide({ ...normal, service, method, path: base + leaf,
+              route: `${method} ${base}${leaf ? '/:id' : ''}`,
+              stepUp: { verified: true, authAgeSeconds: 0 } });
+            assert.equal(result.decision, 'deny');
+          }
+        }
+      }
+    }
+  } finally {
+    if (saved === undefined) delete process.env.VAULT_ZONE_POLICY;
+    else process.env.VAULT_ZONE_POLICY = saved;
+  }
+});
+
 test('engine collection paths cannot grant the entire notes zone to registered users', async () => {
   const saved = process.env.VAULT_ZONE_POLICY;
   const { normal } = fixtureRequests();
@@ -58,7 +84,7 @@ test('legacy demo ownership does not bypass subject, class or project zones', as
   }
 });
 
-test('server policy separates A/B ownership and notice editing without new request claims', async () => {
+test('server policy separates A/B ownership but cannot grant notice writes in v1', async () => {
   const saved = process.env.VAULT_ZONE_POLICY;
   const { normal, suspicious } = fixtureRequests();
   const noteA = randomUUID(), noteB = randomUUID(), notice = randomUUID();
@@ -81,7 +107,7 @@ test('server policy separates A/B ownership and notice editing without new reque
     }
     assert.equal((await decide(request(normal.subjectId, 'notices', 'PUT', notice))).decision, 'deny');
     const editor = request('editor_fixture', 'notices', 'PUT', notice);
-    assert.equal((await decide(editor)).decision, 'allow');
+    assert.equal((await decide(editor)).decision, 'deny');
     assert.equal((await decide({ ...editor, classId: 'other_class' })).decision, 'deny');
     assert.equal((await decide({ ...editor, projectId: 'other_project' })).decision, 'deny');
     assert.equal((await decide({ ...editor, deviceRegistered: false })).reasonCode, 'device_not_registered');

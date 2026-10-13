@@ -93,6 +93,9 @@ export function canEditNoticeInApi(userId, id) {
 }
 
 function authorizedZone(request, route) {
+  // The v1 engine contract carries no verified instructor role. A configured
+  // editor or fresh confirmation cannot grant notice writes in the decider.
+  if (route.resourceId !== RESOURCE_IDS.NOTES) return false;
   // Ownership of the starter's virtual demo is explicit server policy, using the
   // existing fixture's scope. A registered device alone grants no other subject
   // access to this note. These fixture IDs do not bind any real Supabase account.
@@ -102,7 +105,7 @@ function authorizedZone(request, route) {
   }
   const policy = serverZonePolicy();
   if (!policy || !UUID.test(route.id ?? '')) return false;
-  const entries = route.resourceId === RESOURCE_IDS.NOTES ? policy.noteOwners : policy.noticeEditors;
+  const entries = policy.noteOwners;
   return entries.some(entry => entry.classId === request.classId
     && entry.projectId === request.projectId && entry.subjectId === request.subjectId
     && entry.id === route.id);
