@@ -1,8 +1,8 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
-  const ownerStage = [4, 5, 6].includes(config.step);
+  if (![1, 2, 3, 4, 5, 6, 7].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  const ownerStage = [4, 5, 6, 7].includes(config.step);
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -114,12 +114,22 @@ export async function runAttackChecks(config) {
           { attackId: 'anonymous_original_note_read', expected: '원본 자료 경로에 anon 키로 직접 요청하면 자료 없이 거부',
             observed: '미실행: 원본 anon 키 요청은 심판 확인 항목. 학생 자기 점검에서 키를 요청하거나 원본에 보내지 않음' },
         );
-        if (config.step === 6) {
+        if (config.step >= 6) {
           results.push(
             { attackId: 'registered_device_note_read', expected: '실제 엔진이 확인한 등록 기기로 자료실 읽기 허용',
               observed: '미실행: 실제 등록 기기와 운영 릴레이를 통한 요청을 보내지 않음. 판정기 가상 연습 결과와 구분' },
             { attackId: 'unregistered_device_note_read', expected: '미등록 기기 요청은 deny와 device_not_registered로 거부',
               observed: '미실행: 실제 미등록 기기 공격은 심판 확인 항목. 로컬 가상 요청을 운영 공격 결과로 기록하지 않음' },
+          );
+        }
+        if (config.step === 7) {
+          results.push(
+            { attackId: 'composite_risk_step_up', expected: '엔진의 복합 가상 이상 요청은 step_up와 step_up_required로 추가 확인',
+              observed: '미실행: 실제 엔진 요청을 보내지 않음. 로컬 fixture:7 결과는 README에 별도 기록' },
+            { attackId: 'step_up_pending_note_read', expected: '계약이 준비된 환경에서 재로그인 확인 전 자료 요청 차단',
+              observed: '미실행: 같은 주체의 새 로그인 시각 확인 호출 계약과 운영 릴레이 연결이 제공되지 않음' },
+            { attackId: 'step_up_reauthenticated_note_read', expected: '같은 주체의 새 로그인 시각 검증 뒤 새 요청을 재판정하여 정상 읽기 허용',
+              observed: '미실행: 실제 재로그인 확인·새 요청을 보내지 않음. stepUp 플래그를 실제 로그인 증거로 기록하지 않음' },
           );
         }
         return results;

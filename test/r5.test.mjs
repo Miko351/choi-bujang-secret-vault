@@ -36,7 +36,7 @@ test('build identity uses Vercel Git and deployment metadata', () => {
 });
 
 test('later stage identity records the configured stage and validates its range', () => {
-  for (const step of [2, 3, 4, 5, 6, 12]) assert.equal(deploymentIdentity(env, { ...config, step }).step, step);
+  for (const step of [2, 3, 4, 5, 6, 7, 12]) assert.equal(deploymentIdentity(env, { ...config, step }).step, step);
   for (const step of [0, 13, 2.5, '2']) assert.throws(() => deploymentIdentity(env, { ...config, step }));
 });
 
@@ -60,7 +60,7 @@ test('later builds remove static data, retain deployment metadata and reject sou
     });
     const output = join(directory, 'public/data.json');
     await mkdir(join(directory, 'public'));
-    for (const step of [2, 3, 4, 5, 6, 12]) {
+    for (const step of [2, 3, 4, 5, 6, 7, 12]) {
       await writeFile(join(directory, 'aleph.config.json'), JSON.stringify({ ...config, step }));
       await writeFile(output, JSON.stringify({ notes: [{ content: 'STALE_TEST_CONTENT' }] }));
       assert.equal(build().status, 0);
@@ -291,6 +291,41 @@ test('sixth stage records only deployment HTTP results and leaves live device ch
     assert.match(registered.observed, /^미실행/u);
     assert.match(unregistered.observed, /^미실행.*심판/u);
     assert.match(unregistered.expected, /deny.*device_not_registered/u);
+    for (const { options } of calls) {
+      assert.equal(options.headers?.Authorization, undefined);
+      assert.equal(options.headers?.apikey, undefined);
+      if (['POST', 'PUT'].includes(options.method)) assert.equal(options.body, '{}');
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('seventh stage leaves engine step up and fresh login checks unrun while reporting actual HTTP requests', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const seventhConfig = { ...config, step: 7,
+    repoUrl: 'https://github.com/student-a/aleph-defense',
+    identityProvider: { issuer: 'https://training.supabase.co/auth/v1' },
+    originalApiUrl: 'https://training.supabase.co/rest/v1/vault_notes' };
+  try {
+    globalThis.fetch = async (url, options) => {
+      const target = new URL(url);
+      calls.push({ target, options });
+      assert.equal(target.origin, new URL(seventhConfig.publicAppUrl).origin);
+      if (target.pathname === '/data.json') return new Response(null, { status: 404 });
+      if (target.pathname === '/aleph.json') return Response.json({ step: 6,
+        repoUrl: seventhConfig.repoUrl, commit: 'd'.repeat(40) });
+      if (target.pathname === '/') return new Response(null, { headers: { 'X-Content-Type-Options': 'nosniff' } });
+      return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
+    };
+    const results = await runAttackChecks(seventhConfig);
+    assert.equal(calls.length, 8);
+    assert.equal(results.length, 18);
+    assert.equal(new Set(results.map(item => item.attackId)).size, results.length);
+    assert.match(results[6].observed, /배포 단계 6.*불일치/u);
+    for (const item of results.slice(8)) assert.match(item.observed, /^미실행/u);
+    assert.match(results.find(item => item.attackId === 'composite_risk_step_up').expected, /step_up.*step_up_required/u);
+    assert.match(results.find(item => item.attackId === 'step_up_pending_note_read').observed, /호출 계약/u);
+    assert.match(results.find(item => item.attackId === 'step_up_reauthenticated_note_read').observed, /실제 재로그인/u);
     for (const { options } of calls) {
       assert.equal(options.headers?.Authorization, undefined);
       assert.equal(options.headers?.apikey, undefined);
