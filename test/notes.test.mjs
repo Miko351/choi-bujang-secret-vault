@@ -22,6 +22,22 @@ async function invoke({ method = 'GET', authorization, url = '/api/notes', heade
   return result;
 }
 
+test('note resource labels preserve URLs and cannot be overridden by browser claims', async () => {
+  for (const method of ['GET', 'POST', 'PUT', 'DELETE']) {
+    const result = await invoke({ method, url: `/api/notes/${notes[0].id}?resourceId=notices`,
+      headers: { 'x-resource-id': 'notices' }, query: { resourceId: 'notices' },
+      body: { resourceId: 'notices' } });
+    assert.equal(result.headers['x-resource-id'], 'notes');
+    assert.equal(result.status, 401);
+    assert.deepEqual(result.body, { error: 'LOGIN_REQUIRED' });
+  }
+  const list = await invoke();
+  assert.equal(list.headers['x-resource-id'], 'notes');
+  const unknown = await invoke({ url: '/api/notices' });
+  assert.equal(unknown.headers['x-resource-id'], undefined);
+  assert.equal(unknown.status, 401);
+});
+
 test('notes API uses the unchanged starter verifier before every note query', async t => {
   const saved = {
     url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SECRET_KEY,
@@ -92,6 +108,7 @@ test('notes API uses the unchanged starter verifier before every note query', as
       if (databaseMode === 'wrong-owner-response') {
         projected.forEach(row => { row.owner_id = '99999999-9999-4999-8999-999999999999'; });
       }
+      if (databaseMode === 'missing-owner-response') projected.forEach(row => { delete row.owner_id; });
       return new Response(JSON.stringify(projected), {
         headers: { 'content-type': 'application/json' },
       });
@@ -133,13 +150,50 @@ test('notes API uses the unchanged starter verifier before every note query', as
       assert.equal(result.status, 200);
       assert.deepEqual(result.body, notes);
       assert.equal(called.url.pathname, '/rest/v1/vault_notes');
-      assert.equal(called.url.searchParams.get('select'), 'id,title,body:content');
+      assert.equal(called.url.searchParams.get('select'), 'id,title,body:content,owner_id');
       assert.equal(called.url.searchParams.get('owner_id'), `eq.${sub}`);
       assert.equal(called.headers.get('apikey'), fakeSecret);
       assert.equal(result.headers['cache-control'], 'no-store');
       assert.ok(!JSON.stringify(result).includes(fakeSecret));
       assert.ok(!JSON.stringify(result).includes(valid));
       assert.ok(!JSON.stringify(result).includes(sub));
+    });
+
+    await t.test('read responses with foreign or missing stored ownership return only a short safe error', async () => {
+      try {
+        for (const mode of ['wrong-owner-response', 'missing-owner-response']) {
+          databaseMode = mode;
+          for (const url of ['/api/notes', `/api/notes/${notes[0].id}`]) {
+            const result = await invoke({ authorization: valid, url,
+              query: { owner_id: sub, role: 'instructor', resourceId: 'notices' } });
+            assert.equal(result.status, 502);
+            assert.deepEqual(result.body, { error: 'NOTES_UNAVAILABLE' });
+            assert.ok(!JSON.stringify(result.body).includes(notes[0].body));
+            assert.ok(!JSON.stringify(result.body).includes(sub));
+          }
+        }
+      } finally { databaseMode = 'success'; }
+    });
+
+    await t.test('direct notice and unknown resource requests cannot grant instructor access or query another table', async () => {
+      const before = databaseCalls;
+      for (const url of ['/api/notices', `/api/notices/${notes[0].id}`, '/api/other']) {
+        for (const method of ['GET', 'PUT']) {
+          const result = await invoke({ method, authorization: valid, url,
+            query: { resourceId: 'notices', role: 'instructor', owner_id: sub },
+            headers: { 'x-resource-id': 'notes', 'x-role': 'instructor' },
+            body: { role: 'instructor', title: 'NOTICE_TEST', body: 'NOTICE_BODY' } });
+          assert.equal(result.status, 404);
+          assert.deepEqual(result.body, { error: 'NOT_FOUND' });
+        }
+      }
+      assert.equal(databaseCalls, before);
+      const own = await invoke({ authorization: valid,
+        query: { table: 'instructor_notices', resourceId: 'notices', role: 'instructor' } });
+      assert.equal(own.status, 200);
+      assert.equal(own.headers['x-resource-id'], 'notes');
+      assert.equal(called.url.pathname, '/rest/v1/vault_notes');
+      assert.deepEqual(own.body, notes);
     });
 
     await t.test('cookie requests use the unchanged verifier, retain own CRUD and reject cross-site writes', async () => {

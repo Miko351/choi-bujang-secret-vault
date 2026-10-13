@@ -4,6 +4,7 @@ import { createLoginVerifier } from '../src/verify-login.mjs';
 import { readSessionCookies, sameOrigin } from '../src/session-cookies.mjs';
 import authHandler from '../src/auth-handler.mjs';
 import config from '../aleph.config.json' with { type: 'json' };
+import { resourceIdForApiPath } from '../src/decider.mjs';
 
 // Reuse the starter verifier and its JWKS cache within this server runtime.
 let runtime;
@@ -18,6 +19,8 @@ export default async function handler(request, response) {
   }
   response.setHeader('Cache-Control', 'no-store');
   response.setHeader('X-Content-Type-Options', 'nosniff');
+  const resourceId = resourceIdForApiPath(path);
+  if (resourceId !== null) response.setHeader('X-Resource-Id', resourceId);
   const fromCookie = request.headers?.authorization === undefined;
   const access = fromCookie ? readSessionCookies(request).access : undefined;
   const authorization = fromCookie && access ? `Bearer ${access}` : request.headers?.authorization;
@@ -116,11 +119,11 @@ export default async function handler(request, response) {
         owner_id: ownerId }).eq('id', id).eq('owner_id', ownerId)
         .select('id,owner_id');
     } else if (request.method === 'DELETE') {
-      operation = table.delete().eq('id', id).eq('owner_id', ownerId).select('id');
+      operation = table.delete().eq('id', id).eq('owner_id', ownerId).select('id,owner_id');
     } else if (id) {
-      operation = table.select('id,title,body:content').eq('id', id).eq('owner_id', ownerId);
+      operation = table.select('id,title,body:content,owner_id').eq('id', id).eq('owner_id', ownerId);
     } else {
-      operation = table.select('id,title,body:content').eq('owner_id', ownerId)
+      operation = table.select('id,title,body:content,owner_id').eq('owner_id', ownerId)
         .order('created_at', { ascending: true }).order('id', { ascending: true });
     }
     const { data, error } = await operation.abortSignal(AbortSignal.timeout(10000));
@@ -130,7 +133,9 @@ export default async function handler(request, response) {
     if (error || !Array.isArray(data)
         || data.some(note => !UUID.test(note?.id ?? '') || (request.method === 'GET'
           && (typeof note.title !== 'string' || typeof note.body !== 'string'))
-          || (['POST', 'PUT'].includes(request.method) && note.owner_id !== ownerId))) {
+          // Recheck the stored/returned owner for every method, even after the DB filter.
+          // Missing or contradictory ownership must never reach the browser.
+          || note.owner_id !== ownerId)) {
       return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });
     }
     if (request.method === 'POST') {

@@ -5,6 +5,66 @@ import { runInNewContext } from 'node:vm';
 import { decide, RULE_IDS, inspectConnectionInput } from '../src/decider.mjs';
 import { fixtureRequests } from '../scripts/fixture-7.mjs';
 import { checkDecider } from '../scripts/decider-test.mjs';
+import { RESOURCE_IDS, resourceIdForService, resourceIdForApiPath, resourceRouteForRequest } from '../src/decider.mjs';
+
+test('resource routes match exact method, service, path and engine route without function/query selection', async () => {
+  const { normal } = fixtureRequests();
+  for (const base of ['/notes', '/api/notes']) {
+    const id = randomUUID();
+    for (const [path, route] of [[base, `GET ${base}`], [`${base}/${id}`, `GET ${base}/:id`]]) {
+      const request = { ...normal, path, route };
+      assert.equal(resourceRouteForRequest(request).resourceId, 'notes');
+      assert.equal((await decide(request)).decision, 'allow');
+    }
+  }
+  const invalid = [
+    ...['/notes/export', '/notes/demo/export', '/notes/demo/', '/notes/%64emo',
+      '/notes/../demo', '/notices/demo', '/api/notes/export', '/notes/demo?op=export',
+      '/notes/demo#export', '/notes//demo', '/notes/admin'].map(path => ({ ...normal, path })),
+    { ...normal, route: 'GET /notes/export' },
+    { ...normal, queryLength: 9 },
+    { ...normal, subjectId: '' },
+    { ...normal, deviceId: 'unverified' },
+  ];
+  for (const request of invalid) {
+    assert.equal(resourceRouteForRequest(request), null);
+    assert.equal((await decide(request)).decision, 'deny');
+  }
+});
+
+test('recognized update zones fail closed without engine ownership and instructor evidence', async () => {
+  const { normal } = fixtureRequests();
+  const id = randomUUID();
+  for (const service of ['notes', 'notices']) {
+    const request = { ...normal, service, method: 'PUT', path: `/${service}/${id}`, route: `PUT /${service}/:id` };
+    assert.deepEqual(resourceRouteForRequest(request), { resourceId: service, operation: 'update', id });
+    assert.equal((await decide(request)).decision, 'deny');
+    const forged = { ...request, role: 'instructor', owner_id: normal.subjectId };
+    assert.equal((await decide(forged)).decision, 'deny');
+  }
+});
+
+test('engine service identifies notes and instructor notices separately without granting notice access', async () => {
+  const { normal } = fixtureRequests();
+  assert.notEqual(RESOURCE_IDS.NOTES, RESOURCE_IDS.INSTRUCTOR_NOTICES);
+  assert.equal(resourceIdForService(normal.service), 'notes');
+  const notice = { ...normal, service: 'notices', path: '/notices/demo', route: 'GET /notices/:id' };
+  assert.equal(resourceIdForService(notice.service), 'notices');
+  assert.equal((await decide(normal)).decision, 'allow');
+  assert.equal((await decide(notice)).decision, 'deny');
+  assert.equal((await decide({ ...notice, deviceRegistered: false })).reasonCode, 'device_not_registered');
+  for (const service of [undefined, null, {}, 'other', 'NOTES', '__proto__']) {
+    assert.equal(resourceIdForService(service), null);
+  }
+  for (const path of ['/api/notes', '/api/notes/', '/api/notes/demo']) {
+    assert.equal(resourceIdForApiPath(path), 'notes');
+  }
+  for (const path of ['/api/auth/session', '/api/notices', '/api/notes-demo', '/api/notes/a/b', undefined]) {
+    assert.equal(resourceIdForApiPath(path), null);
+  }
+  const browserClaim = { ...notice, resourceId: 'notes' };
+  assert.equal((await decide(browserClaim)).decision, 'deny');
+});
 
 test('the original starter checker selects all four stage seven cases with the declared rule ID', async () => {
   const checks = await checkDecider({ decide, ruleIds: RULE_IDS });

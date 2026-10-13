@@ -1,8 +1,8 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
-  const ownerStage = [4, 5, 6, 7].includes(config.step);
+  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  const ownerStage = [4, 5, 6, 7, 8].includes(config.step);
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -122,7 +122,7 @@ export async function runAttackChecks(config) {
               observed: '미실행: 실제 미등록 기기 공격은 심판 확인 항목. 로컬 가상 요청을 운영 공격 결과로 기록하지 않음' },
           );
         }
-        if (config.step === 7) {
+        if (config.step >= 7) {
           results.push(
             { attackId: 'composite_risk_step_up', expected: '엔진의 복합 가상 이상 요청은 step_up와 step_up_required로 추가 확인',
               observed: '미실행: 실제 엔진 요청을 보내지 않음. 로컬 fixture:7 결과는 README에 별도 기록' },
@@ -130,6 +130,14 @@ export async function runAttackChecks(config) {
               observed: '미실행: 같은 주체의 새 로그인 시각 확인 호출 계약과 운영 릴레이 연결이 제공되지 않음' },
             { attackId: 'step_up_reauthenticated_note_read', expected: '같은 주체의 새 로그인 시각 검증 뒤 새 요청을 재판정하여 정상 읽기 허용',
               observed: '미실행: 실제 재로그인 확인·새 요청을 보내지 않음. stepUp 플래그를 실제 로그인 증거로 기록하지 않음' },
+          );
+        }
+        if (config.step === 8) {
+          results.push(
+            { attackId: 'resource_zone_access', expected: '본인 메모 읽기·수정 허용, 타인 메모·미등록 경로·기능 쿼리 거부; API에서 소유자 재확인',
+              observed: '미실행: 실제 A/B 직접 API·엔진 구역 요청을 보내지 않음. 판정기 소유권 연결 계약은 없고 메모 수정은 기본 거부 유지' },
+            { attackId: 'instructor_notice_update', expected: '서버가 확인한 강사만 공지 수정, 일반 학생의 직접 API 수정은 거부',
+              observed: '미실행: 강사 권한 계약·저장소·공지 API가 없어 강사 허용은 미구현이며 공지는 기본 거부. 본문 role로 권한을 만들지 않음' },
           );
         }
         return results;

@@ -3,6 +3,48 @@
 // 요청 본문의 userId, role, 기기 키, 토큰을 별도로 믿거나 저장하지 마세요.
 export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'step_up_required']);
 
+// Server-owned IDs are carried in the existing engine contract's service field.
+// Notices are reserved here; this app does not yet have a notice API or notice data.
+export const RESOURCE_IDS = Object.freeze({ NOTES: 'notes', INSTRUCTOR_NOTICES: 'notices' });
+export function resourceIdForService(service) {
+  switch (service) {
+    case RESOURCE_IDS.NOTES: return RESOURCE_IDS.NOTES;
+    case RESOURCE_IDS.INSTRUCTOR_NOTICES: return RESOURCE_IDS.INSTRUCTOR_NOTICES;
+    default: return null;
+  }
+}
+export function resourceIdForApiPath(path) {
+  return typeof path === 'string' && /^\/api\/notes(?:\/[^/]+)?\/?$/u.test(path)
+    ? RESOURCE_IDS.NOTES : null;
+}
+
+const NOTE_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|demo)$/u;
+// Match engine paths literally; never decode a function name into a data ID.
+// The legacy demo leaf is the starter's virtual note ID, not an export/action route.
+export function resourceRouteForRequest(request) {
+  const resourceId = resourceIdForService(request?.service);
+  if (resourceId === null || typeof request.path !== 'string' || request.queryLength !== 0) return null;
+  // Only a verified engine subject/device can reach a recognized zone.
+  if (typeof request.subjectId !== 'string' || !request.subjectId.trim()
+      || !/^[0-9a-f]{16}$/u.test(request.deviceId ?? '')) return null;
+  const prefix = resourceId === RESOURCE_IDS.NOTES ? '/notes' : '/notices';
+  const paths = [prefix, `/api${prefix}`];
+  for (const base of paths) {
+    if (resourceId === RESOURCE_IDS.NOTES && request.method === 'GET'
+        && request.path === base && request.route === `GET ${base}`) {
+      return { resourceId, operation: 'read', id: null };
+    }
+    if (!request.path.startsWith(`${base}/`)) continue;
+    const id = request.path.slice(base.length + 1);
+    if (!NOTE_ID.test(id) || request.route !== `${request.method} ${base}/:id`) continue;
+    if (resourceId === RESOURCE_IDS.NOTES && request.method === 'GET') {
+      return { resourceId, operation: 'read', id };
+    }
+    if (request.method === 'PUT') return { resourceId, operation: 'update', id };
+  }
+  return null;
+}
+
 const REQUEST_FIELDS = new Set(['schema', 'requestId', 'classId', 'projectId', 'subjectId',
   'deviceId', 'service', 'method', 'path', 'route', 'queryLength', 'querySha256', 'at',
   'policyRevision', 'deviceRegistered', 'stepUp', 'recentEvents', 'signals']);
@@ -61,7 +103,11 @@ export async function decide(request) {
   }
   // The engine has already verified the identity, service and allowed route.
   const connection = inspectConnectionInput(request);
-  if (connection.valid && request.service === 'notes' && request.method === 'GET') {
+  const resourceId = resourceIdForService(request.service);
+  const resourceRoute = resourceRouteForRequest(request);
+  // A recognized update route is not ownership or instructor evidence. Keep it denied
+  // until the engine supplies that binding. The existing API still enforces owner_id.
+  if (connection.valid && resourceId === RESOURCE_IDS.NOTES && resourceRoute?.operation === 'read') {
     // Fixed practice thresholds, not a claim of real location or a learned user baseline.
     // Only the engine's virtual fixture source can supply these signals today.
     const unusualHour = connection.hour < 6 || connection.hour >= 22;
