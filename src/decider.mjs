@@ -1,7 +1,7 @@
 // ALEPH SDP 엔진이 확인한 요청만 받는 학생 판정기 시작점입니다.
 // 등록 기기의 자료실 읽기에 복합 가상 이상 신호가 있으면 추가 확인을 요청합니다.
 // 요청 본문의 userId, role, 기기 키, 토큰을 별도로 믿거나 저장하지 마세요.
-export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'composite_risk_step_up']);
+export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'step_up_required']);
 
 const REQUEST_FIELDS = new Set(['schema', 'requestId', 'classId', 'projectId', 'subjectId',
   'deviceId', 'service', 'method', 'path', 'route', 'queryLength', 'querySha256', 'at',
@@ -82,7 +82,7 @@ export async function decide(request) {
         requestId: request.requestId,
         decision: 'step_up',
         reasonCode: 'step_up_required',
-        ruleIds: ['device_registered', 'composite_risk_step_up'],
+        ruleIds: ['device_registered', 'step_up_required'],
       };
     }
     return {
@@ -90,7 +90,7 @@ export async function decide(request) {
       requestId: request.requestId,
       decision: 'allow',
       reasonCode: 'approved',
-      ruleIds: confirmedFixture ? ['device_registered', 'composite_risk_step_up'] : ['device_registered'],
+      ruleIds: confirmedFixture ? ['device_registered', 'step_up_required'] : ['device_registered'],
     };
   }
   return {

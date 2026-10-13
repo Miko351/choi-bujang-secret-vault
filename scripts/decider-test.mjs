@@ -29,7 +29,7 @@ export async function checkDecider({ decide, ruleIds }) {
     { name: '미등록 기기의 가상 요청', request: { ...normal, requestId: randomUUID(),
       deviceRegistered: false }, decision: 'deny', reasonCode: 'device_not_registered' },
   ];
-  if (ruleIds.includes('step_up_required') || ruleIds.includes('composite_risk_step_up')) {
+  if (ruleIds.includes('step_up_required')) {
     checks.push(
       { name: '복합 이상 접속', request: suspicious, decision: 'step_up',
         reasonCode: 'step_up_required' },

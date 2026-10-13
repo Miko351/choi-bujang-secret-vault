@@ -4,6 +4,13 @@ import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { decide, RULE_IDS, inspectConnectionInput } from '../src/decider.mjs';
 import { fixtureRequests } from '../scripts/fixture-7.mjs';
+import { checkDecider } from '../scripts/decider-test.mjs';
+
+test('the original starter checker selects all four stage seven cases with the declared rule ID', async () => {
+  const checks = await checkDecider({ decide, ruleIds: RULE_IDS });
+  assert.equal(checks.length, 4);
+  assert.ok(checks.every(check => check.passed));
+});
 
 test('JSON requests from another execution context retain distinct normal and composite decisions', async () => {
   const { normal, suspicious } = fixtureRequests();
@@ -35,7 +42,7 @@ test('registered device can read the notes service using the unchanged response 
   assert.equal(result.requestId, normal.requestId);
   assert.equal(result.schema, 'aleph.decision.v1');
   assert.deepEqual(Object.keys(result).sort(), ['decision', 'reasonCode', 'requestId', 'ruleIds', 'schema']);
-  assert.deepEqual(RULE_IDS, ['starter.deny', 'device_registered', 'composite_risk_step_up']);
+  assert.deepEqual(RULE_IDS, ['starter.deny', 'device_registered', 'step_up_required']);
 });
 
 test('unregistered, missing and non-boolean device states cannot grant read access', async () => {
@@ -133,7 +140,7 @@ test('forged client headers cannot replace or promote engine connection informat
   const withNestedHeaders = { ...normal, signals: { ...normal.signals, headers: forged.headers } };
   assert.equal(inspectConnectionInput(withNestedHeaders).valid, false);
   assert.equal((await decide(withNestedHeaders)).decision, 'deny');
-  assert.deepEqual(RULE_IDS, ['starter.deny', 'device_registered', 'composite_risk_step_up']);
+  assert.deepEqual(RULE_IDS, ['starter.deny', 'device_registered', 'step_up_required']);
 });
 
 test('combined virtual night, unfamiliar network and recent burst requests step up with a reason', async () => {
@@ -142,7 +149,7 @@ test('combined virtual night, unfamiliar network and recent burst requests step 
   const result = await decide(suspicious);
   assert.equal(result.decision, 'step_up');
   assert.equal(result.reasonCode, 'step_up_required');
-  assert.deepEqual(result.ruleIds, ['device_registered', 'composite_risk_step_up']);
+  assert.deepEqual(result.ruleIds, ['device_registered', 'step_up_required']);
   assert.equal(result.requestId, suspicious.requestId);
   assert.equal(result.schema, 'aleph.decision.v1');
   assert.deepEqual(Object.keys(result).sort(), ['decision', 'reasonCode', 'requestId', 'ruleIds', 'schema']);
@@ -167,7 +174,7 @@ test('only a complete fresh engine-verified fixture confirmation permits the new
     assert.equal(result.decision, 'allow');
     assert.equal(result.reasonCode, 'approved');
     assert.equal(result.requestId, confirmed.requestId);
-    assert.deepEqual(result.ruleIds, ['device_registered', 'composite_risk_step_up']);
+    assert.deepEqual(result.ruleIds, ['device_registered', 'step_up_required']);
     const unregistered = await decide({ ...confirmed, deviceRegistered: false });
     assert.equal(unregistered.decision, 'deny');
     assert.equal(unregistered.reasonCode, 'device_not_registered');
