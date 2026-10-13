@@ -359,7 +359,7 @@ test('eighth stage retains real HTTP checks and explicitly records unavailable o
     assert.match(results[6].observed, /배포 단계 7.*불일치/u);
     for (const item of results.slice(8)) assert.match(item.observed, /^미실행/u);
     assert.match(results.find(item => item.attackId === 'resource_zone_access').observed, /소유권 연결 계약/u);
-    assert.match(results.find(item => item.attackId === 'instructor_notice_update').observed, /강사 허용은 미구현/u);
+    assert.match(results.find(item => item.attackId === 'instructor_notice_update').observed, /실제 공지 수정 성공은 미확인/u);
     for (const { options } of calls) {
       assert.equal(options.headers?.Authorization, undefined);
       assert.equal(options.headers?.apikey, undefined);

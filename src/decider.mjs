@@ -1,10 +1,10 @@
 // ALEPH SDP 엔진이 확인한 요청만 받는 학생 판정기 시작점입니다.
 // 등록 기기의 자료실 읽기에 복합 가상 이상 신호가 있으면 추가 확인을 요청합니다.
 // 요청 본문의 userId, role, 기기 키, 토큰을 별도로 믿거나 저장하지 마세요.
-export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'step_up_required']);
+export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'step_up_required', 'resource_zone']);
 
 // Server-owned IDs are carried in the existing engine contract's service field.
-// Notices are reserved here; this app does not yet have a notice API or notice data.
+// A resource ID is a routing label, never a permission supplied by a browser.
 export const RESOURCE_IDS = Object.freeze({ NOTES: 'notes', INSTRUCTOR_NOTICES: 'notices' });
 export function resourceIdForService(service) {
   switch (service) {
@@ -14,8 +14,10 @@ export function resourceIdForService(service) {
   }
 }
 export function resourceIdForApiPath(path) {
-  return typeof path === 'string' && /^\/api\/notes(?:\/[^/]+)?\/?$/u.test(path)
-    ? RESOURCE_IDS.NOTES : null;
+  if (typeof path !== 'string') return null;
+  if (/^\/api\/notes(?:\/[^/]+)?\/?$/u.test(path)) return RESOURCE_IDS.NOTES;
+  if (/^\/api\/notices\/[0-9a-f-]{36}$/u.test(path)) return RESOURCE_IDS.INSTRUCTOR_NOTICES;
+  return null;
 }
 
 const NOTE_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|demo)$/u;
@@ -54,6 +56,56 @@ const record = value => value !== null && typeof value === 'object' && !Array.is
 const fields = (value, names) => record(value) && Object.keys(value).length === names.length
   && names.every(name => Object.hasOwn(value, name));
 const nonempty = value => typeof value === 'string' && value.length > 0 && value.trim() === value;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+// Administrator-managed authorization, separate from the engine input. Never read
+// this policy from headers, query strings, request bodies or user-editable metadata.
+// Engine pseudonyms and Supabase UUIDs are separate namespaces; no inferred binding.
+export function serverZonePolicy() {
+  try {
+    const raw = globalThis.process?.env?.VAULT_ZONE_POLICY;
+    if (typeof raw !== 'string' || raw.length > 65536) return null;
+    const policy = JSON.parse(raw);
+    if (!fields(policy, ['version', 'noteOwners', 'noticeEditors', 'apiNoticeEditors'])
+        || policy.version !== 1) return null;
+    for (const key of ['noteOwners', 'noticeEditors', 'apiNoticeEditors']) {
+      const entries = policy[key];
+      const names = key === 'apiNoticeEditors' ? ['userId', 'id']
+        : ['classId', 'projectId', 'subjectId', 'id'];
+      if (!Array.isArray(entries) || entries.length > 256
+          || entries.some(entry => !fields(entry, names)
+            || names.some(name => !nonempty(entry[name])) || !UUID.test(entry.id)
+            || (key === 'apiNoticeEditors' && !UUID.test(entry.userId)))) return null;
+    }
+    // An ambiguous owner catalog must not grant a note to two different people.
+    const owners = new Set();
+    for (const entry of policy.noteOwners) {
+      const key = JSON.stringify([entry.classId, entry.projectId, entry.id]);
+      if (owners.has(key)) return null;
+      owners.add(key);
+    }
+    return policy;
+  } catch { return null; }
+}
+
+export function canEditNoticeInApi(userId, id) {
+  const policy = serverZonePolicy();
+  return UUID.test(userId ?? '') && UUID.test(id ?? '') && policy !== null
+    && policy.apiNoticeEditors.some(entry => entry.userId === userId && entry.id === id);
+}
+
+function authorizedZone(request, route) {
+  // Keep the earlier starter exercise and collection route. Actual list contents
+  // are filtered by the notes API; demo is not a UUID for a stored application row.
+  if (route.resourceId === RESOURCE_IDS.NOTES && route.operation === 'read'
+      && (route.id === null || route.id === 'demo')) return true;
+  const policy = serverZonePolicy();
+  if (!policy || !UUID.test(route.id ?? '')) return false;
+  const entries = route.resourceId === RESOURCE_IDS.NOTES ? policy.noteOwners : policy.noticeEditors;
+  return entries.some(entry => entry.classId === request.classId
+    && entry.projectId === request.projectId && entry.subjectId === request.subjectId
+    && entry.id === route.id);
+}
 
 // Validate the engine envelope; this is not proof of a caller's identity.
 // Never promote browser headers or fixture data into real location evidence.
@@ -105,8 +157,15 @@ export async function decide(request) {
   const connection = inspectConnectionInput(request);
   const resourceId = resourceIdForService(request.service);
   const resourceRoute = resourceRouteForRequest(request);
-  // A recognized update route is not ownership or instructor evidence. Keep it denied
-  // until the engine supplies that binding. The existing API still enforces owner_id.
+  if (connection.valid && resourceRoute && !authorizedZone(request, resourceRoute)) {
+    return { schema: 'aleph.decision.v1', requestId: request.requestId,
+      decision: 'deny', reasonCode: 'starter_not_ready',
+      ruleIds: ['device_registered', 'resource_zone'] };
+  }
+  if (connection.valid && resourceRoute && resourceRoute.operation === 'update') {
+    return { schema: 'aleph.decision.v1', requestId: request.requestId,
+      decision: 'allow', reasonCode: 'approved', ruleIds: ['device_registered', 'resource_zone'] };
+  }
   if (connection.valid && resourceId === RESOURCE_IDS.NOTES && resourceRoute?.operation === 'read') {
     // Fixed practice thresholds, not a claim of real location or a learned user baseline.
     // Only the engine's virtual fixture source can supply these signals today.
@@ -136,7 +195,8 @@ export async function decide(request) {
       requestId: request.requestId,
       decision: 'allow',
       reasonCode: 'approved',
-      ruleIds: confirmedFixture ? ['device_registered', 'step_up_required'] : ['device_registered'],
+      ruleIds: [...(confirmedFixture ? ['device_registered', 'step_up_required'] : ['device_registered']),
+        ...(UUID.test(resourceRoute.id ?? '') ? ['resource_zone'] : [])],
     };
   }
   return {

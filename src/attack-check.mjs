@@ -135,9 +135,9 @@ export async function runAttackChecks(config) {
         if (config.step === 8) {
           results.push(
             { attackId: 'resource_zone_access', expected: '본인 메모 읽기·수정 허용, 타인 메모·미등록 경로·기능 쿼리 거부; API에서 소유자 재확인',
-              observed: '미실행: 실제 A/B 직접 API·엔진 구역 요청을 보내지 않음. 판정기 소유권 연결 계약은 없고 메모 수정은 기본 거부 유지' },
+              observed: '미실행: 실제 A/B 직접 API·엔진 구역 요청을 보내지 않음. 소유권 연결 계약은 없으며 서버 관리 정책은 실제 미설정. 정책이 없으면 UUID 메모 읽기·수정 거부' },
             { attackId: 'instructor_notice_update', expected: '서버가 확인한 강사만 공지 수정, 일반 학생의 직접 API 수정은 거부',
-              observed: '미실행: 강사 권한 계약·저장소·공지 API가 없어 강사 허용은 미구현이며 공지는 기본 거부. 본문 role로 권한을 만들지 않음' },
+              observed: '미실행: 공지 API의 서버 승인 권한·DB 소유자 검사 구현. 실제 서버 정책·공지 테이블은 미설정이며 실제 공지 수정 성공은 미확인. 본문 role로 권한을 만들지 않음' },
           );
         }
         return results;

@@ -7,6 +7,54 @@ import { fixtureRequests } from '../scripts/fixture-7.mjs';
 import { checkDecider } from '../scripts/decider-test.mjs';
 import { RESOURCE_IDS, resourceIdForService, resourceIdForApiPath, resourceRouteForRequest } from '../src/decider.mjs';
 
+test('server policy separates A/B ownership and notice editing without new request claims', async () => {
+  const saved = process.env.VAULT_ZONE_POLICY;
+  const { normal, suspicious } = fixtureRequests();
+  const noteA = randomUUID(), noteB = randomUUID(), notice = randomUUID();
+  const scope = { classId: normal.classId, projectId: normal.projectId };
+  const policy = { version: 1,
+    noteOwners: [{ ...scope, subjectId: normal.subjectId, id: noteA },
+      { ...scope, subjectId: 'other_fixture', id: noteB }],
+    noticeEditors: [{ ...scope, subjectId: 'editor_fixture', id: notice }], apiNoticeEditors: [] };
+  const request = (subjectId, service, method, id) => ({ ...normal, subjectId, service,
+    method, path: `/${service}/${id}`, route: `${method} /${service}/:id` });
+  try {
+    process.env.VAULT_ZONE_POLICY = JSON.stringify(policy);
+    for (const [actor, own, other] of [[normal.subjectId, noteA, noteB], ['other_fixture', noteB, noteA]]) {
+      for (const method of ['GET', 'PUT']) {
+        assert.equal((await decide(request(actor, 'notes', method, own))).decision, 'allow');
+        const denied = await decide(request(actor, 'notes', method, other));
+        assert.equal(denied.decision, 'deny');
+        assert.ok(denied.ruleIds.includes('resource_zone'));
+      }
+    }
+    assert.equal((await decide(request(normal.subjectId, 'notices', 'PUT', notice))).decision, 'deny');
+    const editor = request('editor_fixture', 'notices', 'PUT', notice);
+    assert.equal((await decide(editor)).decision, 'allow');
+    assert.equal((await decide({ ...editor, classId: 'other_class' })).decision, 'deny');
+    assert.equal((await decide({ ...editor, projectId: 'other_project' })).decision, 'deny');
+    assert.equal((await decide({ ...editor, deviceRegistered: false })).reasonCode, 'device_not_registered');
+    assert.equal((await decide({ ...editor, role: 'instructor' })).decision, 'deny');
+    assert.equal((await decide(request('editor_fixture', 'notices', 'PUT', randomUUID()))).decision, 'deny');
+    assert.equal((await decide({ ...suspicious, path: `/notes/${noteA}` })).decision, 'step_up');
+    assert.equal((await decide({ ...suspicious, subjectId: 'other_fixture', path: `/notes/${noteA}` })).decision, 'deny');
+    assert.equal((await decide({ ...request(normal.subjectId, 'notes', 'PUT', noteA), queryLength: 4 })).decision, 'deny');
+    delete process.env.VAULT_ZONE_POLICY;
+    assert.equal((await decide(request(normal.subjectId, 'notes', 'GET', noteA))).decision, 'deny');
+    assert.equal((await decide(editor)).decision, 'deny');
+    const malformed = [null, {}, { ...policy, role: 'instructor' },
+      { ...policy, noteOwners: [...policy.noteOwners, { ...scope, subjectId: 'other_fixture', id: noteA }] },
+      { ...policy, apiNoticeEditors: [{ userId: 'not_verified', id: notice }] }];
+    for (const value of malformed) {
+      process.env.VAULT_ZONE_POLICY = JSON.stringify(value);
+      assert.equal((await decide(request(normal.subjectId, 'notes', 'PUT', noteA))).decision, 'deny');
+    }
+  } finally {
+    if (saved === undefined) delete process.env.VAULT_ZONE_POLICY;
+    else process.env.VAULT_ZONE_POLICY = saved;
+  }
+});
+
 test('resource routes match exact method, service, path and engine route without function/query selection', async () => {
   const { normal } = fixtureRequests();
   for (const base of ['/notes', '/api/notes']) {
@@ -14,7 +62,8 @@ test('resource routes match exact method, service, path and engine route without
     for (const [path, route] of [[base, `GET ${base}`], [`${base}/${id}`, `GET ${base}/:id`]]) {
       const request = { ...normal, path, route };
       assert.equal(resourceRouteForRequest(request).resourceId, 'notes');
-      assert.equal((await decide(request)).decision, 'allow');
+      // A known route alone is not proof that the UUID belongs to this subject.
+      assert.equal((await decide(request)).decision, path === base ? 'allow' : 'deny');
     }
   }
   const invalid = [
@@ -102,7 +151,7 @@ test('registered device can read the notes service using the unchanged response 
   assert.equal(result.requestId, normal.requestId);
   assert.equal(result.schema, 'aleph.decision.v1');
   assert.deepEqual(Object.keys(result).sort(), ['decision', 'reasonCode', 'requestId', 'ruleIds', 'schema']);
-  assert.deepEqual(RULE_IDS, ['starter.deny', 'device_registered', 'step_up_required']);
+  assert.deepEqual(RULE_IDS, ['starter.deny', 'device_registered', 'step_up_required', 'resource_zone']);
 });
 
 test('unregistered, missing and non-boolean device states cannot grant read access', async () => {
@@ -125,7 +174,8 @@ test('device registration does not expand access to writes or other services', a
     const result = await decide({ ...normal, method, route: `${method} /notes/:id` });
     assert.equal(result.decision, 'deny');
     assert.equal(result.reasonCode, 'starter_not_ready');
-    assert.deepEqual(result.ruleIds, ['starter.deny']);
+    assert.deepEqual(result.ruleIds, method === 'PUT'
+      ? ['device_registered', 'resource_zone'] : ['starter.deny']);
   }
   const other = await decide({ ...normal, service: 'other', path: '/other', route: 'GET /other' });
   assert.equal(other.decision, 'deny');
@@ -200,7 +250,7 @@ test('forged client headers cannot replace or promote engine connection informat
   const withNestedHeaders = { ...normal, signals: { ...normal.signals, headers: forged.headers } };
   assert.equal(inspectConnectionInput(withNestedHeaders).valid, false);
   assert.equal((await decide(withNestedHeaders)).decision, 'deny');
-  assert.deepEqual(RULE_IDS, ['starter.deny', 'device_registered', 'step_up_required']);
+  assert.deepEqual(RULE_IDS, ['starter.deny', 'device_registered', 'step_up_required', 'resource_zone']);
 });
 
 test('combined virtual night, unfamiliar network and recent burst requests step up with a reason', async () => {

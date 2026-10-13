@@ -15,6 +15,7 @@
     "GET /api/notes/:id",
     "PUT /api/notes/:id",
     "DELETE /api/notes/:id",
+    "PUT /api/notices/:id",
     "POST /api/auth/login",
     "POST /api/auth/logout",
     "GET /api/auth/session",

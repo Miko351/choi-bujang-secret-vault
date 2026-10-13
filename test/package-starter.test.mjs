@@ -12,7 +12,8 @@ test('패키징 함수 기준표는 시작 틀의 실제 API와 일치한다', a
   assert.equal(baseline.version, 1);
   assert.equal(baseline.starter, 'ChoiTimo/aleph-defense-starter');
   assert.deepEqual(baseline.functions, ['api/notes.js']);
-  assert.deepEqual(baseline.allowedNew, ['api/ai.js', 'api/threat-intel.js']);
+  // Keep the starter baseline; explicitly declare the stage-eight notice function.
+  assert.deepEqual(baseline.allowedNew, ['api/ai.js', 'api/threat-intel.js', 'api/notices.js']);
   assert.deepEqual(actual, [...baseline.functions, ...baseline.allowedNew].sort());
 });
 
