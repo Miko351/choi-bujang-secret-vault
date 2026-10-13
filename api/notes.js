@@ -66,15 +66,19 @@ export default async function handler(request, response) {
 
   let id;
   try {
-    const path = new URL(request.url ?? '/api/notes', 'http://route.invalid').pathname;
-    const match = /^\/api\/notes(?:\/([^/]+))?\/?$/u.exec(path);
+    const target = new URL(request.url ?? '/api/notes', 'http://route.invalid');
+    const match = /^\/api\/notes(?:\/([^/]+))?\/?$/u.exec(target.pathname);
     if (!match) return response.status(404).json({ error: 'NOT_FOUND' });
-    // Vercel rewrites /api/notes/:id to this function with noteId in the query.
-    id = match[1] ?? request.query?.noteId;
-    if (id !== undefined && (typeof id !== 'string' || !UUID.test(id))) {
+    // The rewrite carries a data ID in the URL. A framework query object may
+    // be absent; never silently turn a single-row request into a list response.
+    const urlIds = target.searchParams.getAll('noteId');
+    const candidates = [match[1], request.query?.noteId, ...urlIds]
+      .filter(value => value !== undefined);
+    if (urlIds.length > 1 || candidates.some(value => typeof value !== 'string' || !UUID.test(value))
+        || new Set(candidates.map(value => value.toLowerCase())).size > 1) {
       return response.status(400).json({ error: 'INVALID_NOTE_ID' });
     }
-    if (id) id = id.toLowerCase();
+    id = candidates[0]?.toLowerCase();
   } catch {
     return response.status(400).json({ error: 'INVALID_NOTE_ID' });
   }

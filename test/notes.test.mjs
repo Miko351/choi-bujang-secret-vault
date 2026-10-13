@@ -345,6 +345,33 @@ test('notes API uses the unchanged starter verifier before every note query', as
       assert.equal([...stored.values()].filter(row => row.owner_id === otherUser).length, 1);
     });
 
+    await t.test('rewritten GET binds the URL note ID even without a framework query object', async () => {
+      const otherUser = '55555555-5555-4555-8555-555555555555';
+      const otherId = '44444444-4444-4444-8444-444444444444';
+      const otherAuthorization = `Bearer ${await sign({ ...claims, sub: otherUser })}`;
+      for (const actor of [
+        { authorization: valid, ownId: notes[0].id, foreignId: otherId },
+        { authorization: otherAuthorization, ownId: otherId, foreignId: notes[0].id },
+      ]) {
+        const foreign = await invoke({ authorization: actor.authorization,
+          url: `/api/notes?noteId=${actor.foreignId}` });
+        assert.equal(foreign.status, 404);
+        assert.deepEqual(foreign.body, { error: 'NOT_FOUND' });
+        const own = await invoke({ authorization: actor.authorization,
+          url: `/api/notes?noteId=${actor.ownId}` });
+        assert.equal(own.status, 200);
+        assert.equal(Array.isArray(own.body), false);
+        assert.equal(own.body.id, actor.ownId);
+      }
+      const before = databaseCalls;
+      for (const url of [
+        '/api/notes?noteId=', '/api/notes?noteId=invalid',
+        `/api/notes?noteId=${notes[0].id}&noteId=${otherId}`,
+        `/api/notes/${notes[0].id}?noteId=${otherId}`,
+      ]) assert.equal((await invoke({ authorization: valid, url })).status, 400);
+      assert.equal(databaseCalls, before);
+    });
+
     await t.test('verified UUID subjects remain valid when their letters are uppercase', async () => {
       const canonicalOwner = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
       const authorization = `Bearer ${await sign({ ...claims, sub: canonicalOwner.toUpperCase() })}`;
