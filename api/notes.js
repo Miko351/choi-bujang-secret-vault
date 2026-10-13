@@ -69,6 +69,11 @@ export default async function handler(request, response) {
     const target = new URL(request.url ?? '/api/notes', 'http://route.invalid');
     const match = /^\/api\/notes(?:\/([^/]+))?\/?$/u.exec(target.pathname);
     if (!match) return response.status(404).json({ error: 'NOT_FOUND' });
+    // A notes URL may select a data ID, never a table, zone, role or function.
+    // Do not turn an unsupported resource request into a successful own-list read.
+    if ([...target.searchParams.keys()].some(key => key !== 'noteId')) {
+      return response.status(403).json({ error: 'RESOURCE_NOT_ALLOWED' });
+    }
     // The rewrite carries a data ID in the URL. A framework query object may
     // be absent; never silently turn a single-row request into a list response.
     const urlIds = target.searchParams.getAll('noteId');

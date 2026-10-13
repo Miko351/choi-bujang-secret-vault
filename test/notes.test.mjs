@@ -145,6 +145,18 @@ test('notes API uses the unchanged starter verifier before every note query', as
     });
 
     const valid = `Bearer ${await sign(claims)}`;
+    await t.test('URL queries select only a note ID and never a different resource or function', async () => {
+      const before = databaseCalls;
+      for (const base of ['/api/notes', `/api/notes/${notes[0].id}`]) {
+        for (const query of ['resourceId=notices', 'table=instructor_notices', 'service=notices',
+          'zone=other', 'action=export', 'op=read', 'role=instructor', `owner_id=${sub}`]) {
+          const result = await invoke({ authorization: valid, url: `${base}?${query}` });
+          assert.equal(result.status, 403);
+          assert.deepEqual(result.body, { error: 'RESOURCE_NOT_ALLOWED' });
+        }
+      }
+      assert.equal(databaseCalls, before);
+    });
     await t.test('verified training A can read four notes without credential or identity leakage', async () => {
       const result = await invoke({ authorization: valid, query: { userId: 'FORGED', role: 'service_role' } });
       assert.equal(result.status, 200);
@@ -307,14 +319,17 @@ test('notes API uses the unchanged starter verifier before every note query', as
         const spoofed = { owner_id: actor.otherUser, userId: actor.otherUser, role: 'service_role' };
         const list = await invoke({ authorization, query: spoofed });
         assert.deepEqual(list.body, actor.expectedList);
-        const own = await invoke({ authorization, url: `/api/notes/${actor.ownId}?owner_id=${actor.otherUser}`,
-          query: spoofed });
+        const forbiddenSelector = await invoke({ authorization,
+          url: `/api/notes/${actor.ownId}?owner_id=${actor.otherUser}`, query: spoofed });
+        assert.equal(forbiddenSelector.status, 403);
+        assert.deepEqual(forbiddenSelector.body, { error: 'RESOURCE_NOT_ALLOWED' });
+        const own = await invoke({ authorization, url: `/api/notes/${actor.ownId}`, query: spoofed });
         assert.equal(own.status, 200);
         assert.deepEqual(Object.keys(own.body).sort(), ['body', 'id', 'title']);
         const before = structuredClone(stored.get(actor.foreignId));
         for (const method of ['GET', 'PUT', 'DELETE']) {
           const denied = await invoke({ method, authorization,
-            url: `/api/notes/${actor.foreignId}?owner_id=${actor.userId}`, query: spoofed,
+            url: `/api/notes/${actor.foreignId}`, query: spoofed,
             body: { title: 'CROSS_OWNER_TEST', body: 'CROSS_OWNER_BODY' } });
           assert.equal(denied.status, 404);
           assert.deepEqual(denied.body, { error: 'NOT_FOUND' });
