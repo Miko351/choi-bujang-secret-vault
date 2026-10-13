@@ -1,8 +1,8 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
-  const ownerStage = config.step === 4 || config.step === 5;
+  if (![1, 2, 3, 4, 5, 6].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  const ownerStage = [4, 5, 6].includes(config.step);
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -13,7 +13,7 @@ export async function runAttackChecks(config) {
       || app.pathname !== '/' || app.hostname.endsWith('.example')) {
     throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
   }
-  if (config.step === 5) {
+  if (config.step >= 5) {
     let original;
     let issuer;
     try {
@@ -101,7 +101,7 @@ export async function runAttackChecks(config) {
         await page.body?.cancel();
       } catch { headerObserved = '첫 화면 보안 헤더 점검 요청 실패'; }
       results.push({ attackId: 'document_security_header', expected: '첫 화면 HTTP 200, X-Content-Type-Options: nosniff', observed: headerObserved });
-      if (config.step === 5) {
+      if (config.step >= 5) {
         results.push(
           { attackId: 'authenticated_a_note_crud', expected: '직접 DB 권한 회수 후에도 A의 화면 조회·추가·수정·삭제 성공',
             observed: '미실행: 이번 자동 점검은 실제 A 로그인 요청을 보내지 않음. 사용자 화면 성공 보고는 README와 설명에 별도 기록' },
@@ -114,6 +114,14 @@ export async function runAttackChecks(config) {
           { attackId: 'anonymous_original_note_read', expected: '원본 자료 경로에 anon 키로 직접 요청하면 자료 없이 거부',
             observed: '미실행: 원본 anon 키 요청은 심판 확인 항목. 학생 자기 점검에서 키를 요청하거나 원본에 보내지 않음' },
         );
+        if (config.step === 6) {
+          results.push(
+            { attackId: 'registered_device_note_read', expected: '실제 엔진이 확인한 등록 기기로 자료실 읽기 허용',
+              observed: '미실행: 실제 등록 기기와 운영 릴레이를 통한 요청을 보내지 않음. 판정기 가상 연습 결과와 구분' },
+            { attackId: 'unregistered_device_note_read', expected: '미등록 기기 요청은 deny와 device_not_registered로 거부',
+              observed: '미실행: 실제 미등록 기기 공격은 심판 확인 항목. 로컬 가상 요청을 운영 공격 결과로 기록하지 않음' },
+          );
+        }
         return results;
       }
       results.push(
