@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { readSessionCookies, sameOrigin } from '../src/session-cookies.mjs';
 import authHandler from '../src/auth-handler.mjs';
@@ -9,6 +9,24 @@ import { resourceIdForApiPath } from '../src/decider.mjs';
 // Reuse the starter verifier and its JWKS cache within this server runtime.
 let runtime;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+function noteOwnerForVerifiedLogin(login) {
+  if (typeof login?.userId !== 'string' || !UUID.test(login.userId)) return null;
+  const subject = login.userId.toLowerCase();
+  if (login.kind === 'student') return subject;
+  if (login.kind !== 'judge' || !['a', 'b'].includes(login.identity)
+      || typeof login.runId !== 'string' || !UUID.test(login.runId)) return null;
+  // The unchanged verifier has already checked signature, issuer and audience.
+  // Distinct signed practice identities/runs must not collapse onto one sub.
+  // This is an internal ownership UUID, never a credential or a new login claim.
+  const tuple = [config.judgeIssuer, new URL(config.publicAppUrl).hostname,
+    login.runId.toLowerCase(), login.identity, subject];
+  const bytes = createHash('sha256').update('vault.notes.owner.v1\0')
+    .update(JSON.stringify(tuple)).digest().subarray(0, 16);
+  // UUIDv8 marks this application-defined, deterministic owner namespace.
+  bytes[6] = (bytes[6] & 15) | 128;
+  bytes[8] = (bytes[8] & 63) | 128;
+  return bytes.toString('hex').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/u, '$1-$2-$3-$4-$5');
+}
 export default async function handler(request, response) {
   let path;
   try { path = new URL(request.url ?? '/api/notes', 'http://route.invalid').pathname; } catch { /* Existing route validation handles this below. */ }
@@ -54,15 +72,15 @@ export default async function handler(request, response) {
 
   const current = runtime;
   let identity;
+  let ownerId;
   try {
     identity = await current.verify(authorization);
-    if (!identity?.userId) return response.status(401).json({ error: 'LOGIN_REQUIRED' });
+    ownerId = noteOwnerForVerifiedLogin(identity);
+    if (!ownerId) return response.status(401).json({ error: 'LOGIN_REQUIRED' });
     // Identity comes only from the unchanged verifier. Ignore request userId/role.
   } catch {
     return response.status(401).json({ error: 'LOGIN_REQUIRED' });
   }
-  // PostgreSQL UUID values are canonical lowercase, including verified judge IDs.
-  const ownerId = identity.userId.toLowerCase();
 
   let id;
   try {

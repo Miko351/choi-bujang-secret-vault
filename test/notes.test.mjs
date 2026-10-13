@@ -229,14 +229,63 @@ test('notes API uses the unchanged starter verifier before every note query', as
       assert.equal((await invoke({ headers: { cookie: '__Host-vault-access=unverified' } })).status, 401);
     });
 
-    await t.test('the starter judge A flow is preserved', async () => {
+    await t.test('judge A uses a separate memo scope from the same-sub student', async () => {
       const authorization = `Bearer ${await sign({
         ...claims, iss: config.judgeIssuer, aud: new URL(config.publicAppUrl).hostname,
         aleph_role: 'judge', aleph_identity: 'a', aleph_run: '22222222-2222-4222-8222-222222222222',
       })}`;
       const result = await invoke({ authorization });
       assert.equal(result.status, 200);
-      assert.deepEqual(result.body, notes);
+      assert.deepEqual(result.body, []);
+      assert.equal((await invoke({ authorization, url: `/api/notes/${notes[0].id}` })).status, 404);
+      assert.deepEqual((await invoke({ authorization: valid })).body, notes);
+    });
+
+    await t.test('verified judge A/B sharing a sub must not share an owned memo', async () => {
+      const id = '99999999-9999-4999-8999-999999999999';
+      const otherId = '99999999-9999-4999-8999-999999999998';
+      const signedJudge = async (identity, runId = '22222222-2222-4222-8222-222222222222', subject = sub) => `Bearer ${await sign({
+        ...claims, iss: config.judgeIssuer, aud: new URL(config.publicAppUrl).hostname,
+        sub: subject, aleph_role: 'judge', aleph_identity: identity, aleph_run: runId,
+      })}`;
+      try {
+        const a = await signedJudge('a'), b = await signedJudge('b');
+        const created = await invoke({ method: 'POST', authorization: a,
+          body: { id, title: 'SCOPED_TEST', body: 'SCOPED_BODY' } });
+        assert.equal(created.status, 201);
+        const aOwner = stored.get(id).owner_id;
+        assert.notEqual(aOwner, sub);
+        assert.match(aOwner, /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
+        assert.equal((await invoke({ authorization: a, url: `/api/notes/${id}` })).status, 200);
+        const foreign = await invoke({ authorization: b, url: `/api/notes/${id}` });
+        assert.equal(foreign.status, 404);
+        assert.deepEqual(foreign.body, { error: 'NOT_FOUND' });
+        assert.deepEqual((await invoke({ authorization: b })).body, []);
+        for (const method of ['PUT', 'DELETE']) {
+          const denied = await invoke({ method, authorization: b, url: `/api/notes/${id}`,
+            body: { title: 'CROSS_TEST', body: 'CROSS_BODY' } });
+          assert.equal(denied.status, 404);
+        }
+        const repeated = await signedJudge('a');
+        assert.equal((await invoke({ authorization: repeated, url: `/api/notes/${id}` })).status, 200);
+        const otherRun = await signedJudge('a', '44444444-4444-4444-8444-444444444444');
+        const otherSubject = await signedJudge('a', undefined, '55555555-5555-4555-8555-555555555555');
+        for (const authorization of [otherRun, otherSubject, valid]) {
+          assert.equal((await invoke({ authorization, url: `/api/notes/${id}` })).status, 404);
+        }
+        assert.equal((await invoke({ method: 'POST', authorization: b,
+          body: { id: otherId, title: 'OTHER_SCOPE_TEST', body: 'OTHER_SCOPE_BODY' } })).status, 201);
+        assert.notEqual(stored.get(otherId).owner_id, aOwner);
+        assert.equal((await invoke({ authorization: b, url: `/api/notes/${otherId}` })).status, 200);
+        assert.equal((await invoke({ authorization: a, url: `/api/notes/${otherId}` })).status, 404);
+        assert.equal((await invoke({ method: 'PUT', authorization: a, url: `/api/notes/${id}`,
+          body: { title: 'OWN_SCOPE_UPDATED', body: 'OWN_SCOPE_BODY' } })).status, 200);
+        assert.equal(stored.get(id).owner_id, aOwner);
+        assert.equal((await invoke({ method: 'DELETE', authorization: a, url: `/api/notes/${id}` })).status, 204);
+        assert.equal((await invoke({ method: 'DELETE', authorization: b, url: `/api/notes/${otherId}` })).status, 204);
+        assert.equal((await invoke({ authorization: a, url: `/api/notes/${id}` })).status, 404);
+        assert.deepEqual((await invoke({ authorization: valid })).body, notes);
+      } finally { stored.delete(id); stored.delete(otherId); }
     });
 
     await t.test('DB failures never expose upstream errors or credentials', async () => {
