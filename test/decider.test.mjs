@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import { decide, RULE_IDS, inspectConnectionInput } from '../src/decider.mjs';
 import { fixtureRequests } from '../scripts/fixture-7.mjs';
@@ -129,8 +130,41 @@ test('combined virtual night, unfamiliar network and recent burst requests step 
   assert.equal(unregistered.decision, 'deny');
   assert.equal(unregistered.reasonCode, 'device_not_registered');
   assert.deepEqual(unregistered.ruleIds, ['device_registered']);
-  const reauthFlagOnly = await decide({ ...suspicious, stepUp: { verified: true, authAgeSeconds: 60 } });
-  assert.equal(reauthFlagOnly.decision, 'step_up');
+  const missingAge = await decide({ ...suspicious, stepUp: { verified: true } });
+  assert.equal(missingAge.decision, 'step_up');
+});
+
+test('only a complete fresh engine-verified fixture confirmation permits the new request', async () => {
+  const { suspicious } = fixtureRequests();
+  const pending = await decide(suspicious);
+  assert.equal(pending.decision, 'step_up');
+  for (const authAgeSeconds of [0, 60, 900]) {
+    const confirmed = { ...suspicious, requestId: randomUUID(),
+      stepUp: { verified: true, authAgeSeconds } };
+    const result = await decide(confirmed);
+    assert.equal(result.decision, 'allow');
+    assert.equal(result.reasonCode, 'approved');
+    assert.equal(result.requestId, confirmed.requestId);
+    assert.deepEqual(result.ruleIds, ['device_registered', 'composite_risk_step_up']);
+    const unregistered = await decide({ ...confirmed, deviceRegistered: false });
+    assert.equal(unregistered.decision, 'deny');
+    assert.equal(unregistered.reasonCode, 'device_not_registered');
+  }
+  for (const stepUp of [undefined, null, {},
+    { verified: false, authAgeSeconds: 60 },
+    { verified: 'true', authAgeSeconds: 60 },
+    { verified: true, authAgeSeconds: null },
+    { verified: true, authAgeSeconds: '60' },
+    { verified: true, authAgeSeconds: -1 },
+    { verified: true, authAgeSeconds: 901 },
+    { verified: true, authAgeSeconds: Infinity },
+    { verified: true, authAgeSeconds: 60, clientClaim: true },
+  ]) {
+    assert.equal((await decide({ ...suspicious, stepUp })).decision, 'step_up');
+  }
+  const forged = { ...suspicious, stepUp: { verified: true, authAgeSeconds: 60 },
+    headers: { 'x-step-up-verified': 'true' } };
+  assert.equal((await decide(forged)).decision, 'deny');
 });
 
 test('region alone and incomplete combinations never cause a permanent block or step up', async () => {

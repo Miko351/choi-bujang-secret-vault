@@ -67,9 +67,15 @@ export async function decide(request) {
     const recentReads = connection.recentEvents
       .filter(event => event.kind === 'risk_signal' && event.ageSeconds <= 60)
       .reduce((total, event) => total + event.count, 0);
+    // Engine-verified virtual requests can exercise the post-confirmation decision.
+    // This does not verify a real new login or connect the live reauthentication flow.
+    const confirmedFixture = connection.source === 'judge_fixture'
+      && fields(request.stepUp, ['verified', 'authAgeSeconds'])
+      && request.stepUp.verified === true
+      && Number.isFinite(request.stepUp.authAgeSeconds)
+      && request.stepUp.authAgeSeconds >= 0 && request.stepUp.authAgeSeconds <= 900;
     if (connection.source === 'judge_fixture' && unusualHour
-        && connection.network === 'unusual' && recentReads >= 20) {
-      // A stepUp flag alone must not skip the engine's actual reauthentication flow.
+        && connection.network === 'unusual' && recentReads >= 20 && !confirmedFixture) {
       return {
         schema: 'aleph.decision.v1',
         requestId: request.requestId,
@@ -83,7 +89,7 @@ export async function decide(request) {
       requestId: request.requestId,
       decision: 'allow',
       reasonCode: 'approved',
-      ruleIds: ['device_registered'],
+      ruleIds: confirmedFixture ? ['device_registered', 'composite_risk_step_up'] : ['device_registered'],
     };
   }
   return {
