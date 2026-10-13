@@ -1,7 +1,7 @@
 // ALEPH SDP 엔진이 확인한 요청만 받는 학생 판정기 시작점입니다.
 // 등록 기기의 자료실 읽기에 복합 가상 이상 신호가 있으면 추가 확인을 요청합니다.
 // 요청 본문의 userId, role, 기기 키, 토큰을 별도로 믿거나 저장하지 마세요.
-export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'step_up_required', 'resource_zone']);
+export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'step_up_required', 'resource_scope']);
 
 // Server-owned IDs are carried in the existing engine contract's service field.
 // A resource ID is a routing label, never a permission supplied by a browser.
@@ -161,11 +161,11 @@ export async function decide(request) {
   if (connection.valid && resourceRoute && !authorizedZone(request, resourceRoute)) {
     return { schema: 'aleph.decision.v1', requestId: request.requestId,
       decision: 'deny', reasonCode: 'starter_not_ready',
-      ruleIds: ['device_registered', 'resource_zone'] };
+      ruleIds: ['device_registered', 'resource_scope'] };
   }
   if (connection.valid && resourceRoute && resourceRoute.operation === 'update') {
     return { schema: 'aleph.decision.v1', requestId: request.requestId,
-      decision: 'allow', reasonCode: 'approved', ruleIds: ['device_registered', 'resource_zone'] };
+      decision: 'allow', reasonCode: 'approved', ruleIds: ['device_registered', 'resource_scope'] };
   }
   if (connection.valid && resourceId === RESOURCE_IDS.NOTES && resourceRoute?.operation === 'read') {
     // Fixed practice thresholds, not a claim of real location or a learned user baseline.
@@ -197,7 +197,7 @@ export async function decide(request) {
       decision: 'allow',
       reasonCode: 'approved',
       ruleIds: [...(confirmedFixture ? ['device_registered', 'step_up_required'] : ['device_registered']),
-        ...(UUID.test(resourceRoute.id ?? '') ? ['resource_zone'] : [])],
+        ...(UUID.test(resourceRoute.id ?? '') ? ['resource_scope'] : [])],
     };
   }
   return {

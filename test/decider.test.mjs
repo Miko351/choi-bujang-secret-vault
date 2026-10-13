@@ -47,7 +47,7 @@ test('legacy demo ownership does not bypass subject, class or project zones', as
       for (const stepUp of [normal.stepUp, { verified: true, authAgeSeconds: 60 }]) {
         const denied = await decide({ ...own, ...altered, stepUp });
         assert.equal(denied.decision, 'deny');
-        assert.ok(denied.ruleIds.includes('resource_zone'));
+        assert.ok(denied.ruleIds.includes('resource_scope'));
         assert.deepEqual(Object.keys(denied).sort(), ['decision', 'reasonCode', 'requestId', 'ruleIds', 'schema']);
       }
     }
@@ -76,7 +76,7 @@ test('server policy separates A/B ownership and notice editing without new reque
         assert.equal((await decide(request(actor, 'notes', method, own))).decision, 'allow');
         const denied = await decide(request(actor, 'notes', method, other));
         assert.equal(denied.decision, 'deny');
-        assert.ok(denied.ruleIds.includes('resource_zone'));
+        assert.ok(denied.ruleIds.includes('resource_scope'));
       }
     }
     assert.equal((await decide(request(normal.subjectId, 'notices', 'PUT', notice))).decision, 'deny');
@@ -202,7 +202,7 @@ test('registered device can read the notes service using the unchanged response 
   assert.equal(result.requestId, normal.requestId);
   assert.equal(result.schema, 'aleph.decision.v1');
   assert.deepEqual(Object.keys(result).sort(), ['decision', 'reasonCode', 'requestId', 'ruleIds', 'schema']);
-  assert.deepEqual(RULE_IDS, ['starter.deny', 'device_registered', 'step_up_required', 'resource_zone']);
+  assert.deepEqual(RULE_IDS, ['starter.deny', 'device_registered', 'step_up_required', 'resource_scope']);
 });
 
 test('unregistered, missing and non-boolean device states cannot grant read access', async () => {
@@ -226,7 +226,7 @@ test('device registration does not expand access to writes or other services', a
     assert.equal(result.decision, 'deny');
     assert.equal(result.reasonCode, 'starter_not_ready');
     assert.deepEqual(result.ruleIds, method === 'PUT'
-      ? ['device_registered', 'resource_zone'] : ['starter.deny']);
+      ? ['device_registered', 'resource_scope'] : ['starter.deny']);
   }
   const other = await decide({ ...normal, service: 'other', path: '/other', route: 'GET /other' });
   assert.equal(other.decision, 'deny');
@@ -301,7 +301,7 @@ test('forged client headers cannot replace or promote engine connection informat
   const withNestedHeaders = { ...normal, signals: { ...normal.signals, headers: forged.headers } };
   assert.equal(inspectConnectionInput(withNestedHeaders).valid, false);
   assert.equal((await decide(withNestedHeaders)).decision, 'deny');
-  assert.deepEqual(RULE_IDS, ['starter.deny', 'device_registered', 'step_up_required', 'resource_zone']);
+  assert.deepEqual(RULE_IDS, ['starter.deny', 'device_registered', 'step_up_required', 'resource_scope']);
 });
 
 test('combined virtual night, unfamiliar network and recent burst requests step up with a reason', async () => {
