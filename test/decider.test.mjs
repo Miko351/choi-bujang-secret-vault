@@ -7,6 +7,29 @@ import { fixtureRequests } from '../scripts/fixture-7.mjs';
 import { checkDecider } from '../scripts/decider-test.mjs';
 import { RESOURCE_IDS, resourceIdForService, resourceIdForApiPath, resourceRouteForRequest } from '../src/decider.mjs';
 
+test('legacy demo ownership does not bypass subject, class or project zones', async () => {
+  const { normal, suspicious } = fixtureRequests();
+  assert.equal((await decide(normal)).decision, 'allow');
+  assert.equal((await decide(suspicious)).decision, 'step_up');
+  for (const base of ['/notes', '/api/notes']) {
+    const own = { ...normal, path: `${base}/demo`, route: `GET ${base}/:id` };
+    assert.equal((await decide(own)).decision, 'allow');
+    for (const altered of [{ subjectId: 'other_fixture' }, { classId: 'other_class' },
+      { projectId: 'other_project' }]) {
+      for (const stepUp of [normal.stepUp, { verified: true, authAgeSeconds: 60 }]) {
+        const denied = await decide({ ...own, ...altered, stepUp });
+        assert.equal(denied.decision, 'deny');
+        assert.ok(denied.ruleIds.includes('resource_zone'));
+        assert.deepEqual(Object.keys(denied).sort(), ['decision', 'reasonCode', 'requestId', 'ruleIds', 'schema']);
+      }
+    }
+    assert.equal((await decide({ ...own, deviceRegistered: false })).reasonCode, 'device_not_registered');
+    assert.equal((await decide({ ...own, subjectId: 'other_fixture', role: 'instructor' })).decision, 'deny');
+    assert.equal((await decide({ ...own, service: 'notices', method: 'PUT',
+      path: '/notices/demo', route: 'PUT /notices/:id' })).decision, 'deny');
+  }
+});
+
 test('server policy separates A/B ownership and notice editing without new request claims', async () => {
   const saved = process.env.VAULT_ZONE_POLICY;
   const { normal, suspicious } = fixtureRequests();

@@ -95,10 +95,15 @@ export function canEditNoticeInApi(userId, id) {
 }
 
 function authorizedZone(request, route) {
-  // Keep the earlier starter exercise and collection route. Actual list contents
-  // are filtered by the notes API; demo is not a UUID for a stored application row.
-  if (route.resourceId === RESOURCE_IDS.NOTES && route.operation === 'read'
-      && (route.id === null || route.id === 'demo')) return true;
+  // The collection contents are filtered by the notes API.
+  if (route.resourceId === RESOURCE_IDS.NOTES && route.operation === 'read' && route.id === null) return true;
+  // Ownership of the starter's virtual demo is explicit server policy, using the
+  // existing fixture's scope. A registered device alone grants no other subject
+  // access to this note. These fixture IDs do not bind any real Supabase account.
+  if (route.resourceId === RESOURCE_IDS.NOTES && route.operation === 'read' && route.id === 'demo') {
+    return request.classId === 'class_fixture' && request.projectId === 'project_fixture'
+      && request.subjectId === 'learner_fixture';
+  }
   const policy = serverZonePolicy();
   if (!policy || !UUID.test(route.id ?? '')) return false;
   const entries = route.resourceId === RESOURCE_IDS.NOTES ? policy.noteOwners : policy.noticeEditors;
