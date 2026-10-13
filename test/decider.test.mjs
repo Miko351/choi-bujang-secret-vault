@@ -7,6 +7,34 @@ import { fixtureRequests } from '../scripts/fixture-7.mjs';
 import { checkDecider } from '../scripts/decider-test.mjs';
 import { RESOURCE_IDS, resourceIdForService, resourceIdForApiPath, resourceRouteForRequest } from '../src/decider.mjs';
 
+test('engine collection paths cannot grant the entire notes zone to registered users', async () => {
+  const saved = process.env.VAULT_ZONE_POLICY;
+  const { normal } = fixtureRequests();
+  const id = randomUUID();
+  try {
+    process.env.VAULT_ZONE_POLICY = JSON.stringify({ version: 1,
+      noteOwners: [{ classId: normal.classId, projectId: normal.projectId, subjectId: normal.subjectId, id }],
+      noticeEditors: [], apiNoticeEditors: [] });
+    for (const base of ['/notes', '/api/notes']) {
+      for (const subjectId of [normal.subjectId, 'other_fixture']) {
+        for (const path of [base, `${base}/`, `${base}/all`, `${base}/export`]) {
+          const request = { ...normal, subjectId, path, route: `GET ${base}` };
+          assert.equal(resourceRouteForRequest(request), null);
+          assert.equal((await decide(request)).decision, 'deny');
+          assert.equal((await decide({ ...request, stepUp: { verified: true, authAgeSeconds: 0 } })).decision, 'deny');
+        }
+      }
+      // Removing collection access must retain proven ownership of a single row.
+      const own = { ...normal, path: `${base}/${id}`, route: `GET ${base}/:id` };
+      assert.equal((await decide(own)).decision, 'allow');
+      assert.equal((await decide({ ...own, subjectId: 'other_fixture' })).decision, 'deny');
+    }
+  } finally {
+    if (saved === undefined) delete process.env.VAULT_ZONE_POLICY;
+    else process.env.VAULT_ZONE_POLICY = saved;
+  }
+});
+
 test('legacy demo ownership does not bypass subject, class or project zones', async () => {
   const { normal, suspicious } = fixtureRequests();
   assert.equal((await decide(normal)).decision, 'allow');
@@ -82,11 +110,11 @@ test('resource routes match exact method, service, path and engine route without
   const { normal } = fixtureRequests();
   for (const base of ['/notes', '/api/notes']) {
     const id = randomUUID();
-    for (const [path, route] of [[base, `GET ${base}`], [`${base}/${id}`, `GET ${base}/:id`]]) {
+    for (const [path, route] of [[`${base}/${id}`, `GET ${base}/:id`]]) {
       const request = { ...normal, path, route };
       assert.equal(resourceRouteForRequest(request).resourceId, 'notes');
       // A known route alone is not proof that the UUID belongs to this subject.
-      assert.equal((await decide(request)).decision, path === base ? 'allow' : 'deny');
+      assert.equal((await decide(request)).decision, 'deny');
     }
   }
   const invalid = [

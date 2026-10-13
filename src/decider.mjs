@@ -32,10 +32,8 @@ export function resourceRouteForRequest(request) {
   const prefix = resourceId === RESOURCE_IDS.NOTES ? '/notes' : '/notices';
   const paths = [prefix, `/api${prefix}`];
   for (const base of paths) {
-    if (resourceId === RESOURCE_IDS.NOTES && request.method === 'GET'
-        && request.path === base && request.route === `GET ${base}`) {
-      return { resourceId, operation: 'read', id: null };
-    }
+    // An engine collection path does not identify an owned row. Do not grant a
+    // whole zone based on registration or on the API's separate list filtering.
     if (!request.path.startsWith(`${base}/`)) continue;
     const id = request.path.slice(base.length + 1);
     if (!NOTE_ID.test(id) || request.route !== `${request.method} ${base}/:id`) continue;
@@ -95,8 +93,6 @@ export function canEditNoticeInApi(userId, id) {
 }
 
 function authorizedZone(request, route) {
-  // The collection contents are filtered by the notes API.
-  if (route.resourceId === RESOURCE_IDS.NOTES && route.operation === 'read' && route.id === null) return true;
   // Ownership of the starter's virtual demo is explicit server policy, using the
   // existing fixture's scope. A registered device alone grants no other subject
   // access to this note. These fixture IDs do not bind any real Supabase account.
