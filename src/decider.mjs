@@ -7,7 +7,8 @@ const REQUEST_FIELDS = new Set(['schema', 'requestId', 'classId', 'projectId', '
   'deviceId', 'service', 'method', 'path', 'route', 'queryLength', 'querySha256', 'at',
   'policyRevision', 'deviceRegistered', 'stepUp', 'recentEvents', 'signals']);
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value)
-  && [Object.prototype, null].includes(Object.getPrototypeOf(value));
+  // JSON may cross the engine's execution context; prototype identity is not provenance.
+  && Object.prototype.toString.call(value) === '[object Object]';
 const fields = (value, names) => record(value) && Object.keys(value).length === names.length
   && names.every(name => Object.hasOwn(value, name));
 const nonempty = value => typeof value === 'string' && value.length > 0 && value.trim() === value;

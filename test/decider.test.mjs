@@ -1,8 +1,30 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { decide, RULE_IDS, inspectConnectionInput } from '../src/decider.mjs';
 import { fixtureRequests } from '../scripts/fixture-7.mjs';
+
+test('JSON requests from another execution context retain distinct normal and composite decisions', async () => {
+  const { normal, suspicious } = fixtureRequests();
+  const remoteJson = request => runInNewContext('JSON.parse(payload)', { payload: JSON.stringify(request) });
+  for (const [request, expected] of [[normal, 'allow'], [suspicious, 'step_up']]) {
+    const remote = remoteJson(request);
+    assert.notEqual(Object.getPrototypeOf(remote), Object.prototype);
+    assert.equal((await decide(remote)).decision, expected);
+    // Also cover a same-context envelope with nested JSON created by the engine.
+    assert.equal((await decide({ ...request, signals: remote.signals,
+      recentEvents: remote.recentEvents, stepUp: remote.stepUp })).decision, expected);
+  }
+  const confirmed = remoteJson({ ...suspicious, requestId: randomUUID(),
+    stepUp: { verified: true, authAgeSeconds: 60 } });
+  assert.equal((await decide(confirmed)).decision, 'allow');
+  assert.equal((await decide({ ...confirmed, deviceRegistered: false })).reasonCode, 'device_not_registered');
+  const forged = remoteJson({ ...suspicious, headers: { 'x-signals-source': 'judge_fixture' } });
+  assert.equal((await decide(forged)).decision, 'deny');
+  assert.equal((await decide(remoteJson({ ...suspicious,
+    signals: { ...suspicious.signals, source: 'client' } }))).decision, 'deny');
+});
 
 test('registered device can read the notes service using the unchanged response contract', async () => {
   const { normal } = fixtureRequests();
