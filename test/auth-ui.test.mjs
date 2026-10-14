@@ -25,6 +25,7 @@ function fixture({ session = null, initialError = null, deviceState = {status:'a
     querySelector: selector => nodes[selector.slice(1)],
     createElement: element,
   };
+  const operations = {opens:0,clears:0,open(){this.opens++;},clear(){this.clears++;}};
   const calls = [];
   const noteCalls = [];
   let noteFetch = async (url, options) => {
@@ -51,12 +52,12 @@ function fixture({ session = null, initialError = null, deviceState = {status:'a
     },
   };
   return {
-    nodes, calls, sdk, noteCalls,
+    nodes, calls, sdk, noteCalls, operations,
     setDeviceState: state => { deviceState = state; },
     setDeviceStatus: callback => { deviceStatusCall = callback; },
     setNoteFetch: callback => { noteFetch = callback; },
     change: (...args) => change(...args),
-    mount: async () => mountAuthUI({ document, deviceClient: { status:()=>deviceStatusCall(), requestRegistration:async()=>({status:'pending',deviceRegistered:false}), confirmDevice:async()=>deviceState },
+    mount: async () => mountAuthUI({ document, operationsUI:operations, deviceClient: { status:()=>deviceStatusCall(), requestRegistration:async()=>({status:'pending',deviceRegistered:false}), confirmDevice:async()=>deviceState },
       fetch: (...args) => noteFetch(...args),
       createClient: options => {
         calls.push({ method: 'createClient', options });
@@ -330,4 +331,11 @@ test('late approval after logout cannot reveal notes and a server device denial 
   assert.equal(f.nodes['note-editor'].hidden,true);assert.equal(f.nodes['note-title'].value,'');
   assert.equal(f.nodes.notes.children.length,1);assert.match(f.nodes.notes.children[0].textContent,/승인 확인 전/u);
   assert.match(f.nodes['device-approval-status'].textContent,/다시 확인/u);
+});
+test('operations opens only after server device approval and is cleared when the protected session closes',async()=>{
+  const f=fixture({session:account,deviceState:{status:'pending',deviceRegistered:false}});
+  await f.mount();await new Promise(resolve=>setImmediate(resolve));assert.equal(f.operations.opens,0);
+  f.setDeviceState({status:'approved',deviceRegistered:true});f.nodes['device-check'].listeners.click();
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(f.operations.opens,1);
+  const before=f.operations.clears;await f.logout();assert.ok(f.operations.clears>before);
 });

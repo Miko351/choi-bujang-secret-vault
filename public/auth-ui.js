@@ -1,3 +1,4 @@
+import { createOperationsUI } from './operations-ui.js';
 import { createDeviceClient } from './device-client.js';
 import { createServerAuthClient } from './auth-client.js';
 
@@ -23,7 +24,7 @@ function failureReason(error) {
   return '인증 요청을 처리하지 못했습니다. 프로젝트 설정을 확인한 뒤 다시 시도해 주세요.';
 }
 
-export async function mountAuthUI({ document, createClient = createServerAuthClient, fetch: fetchNotes = globalThis.fetch, deviceClient }) {
+export async function mountAuthUI({ document, createClient = createServerAuthClient, fetch: fetchNotes = globalThis.fetch, deviceClient, operationsUI }) {
   const form = document.querySelector('#login-form');
   const email = document.querySelector('#login-email');
   const password = document.querySelector('#login-password');
@@ -61,6 +62,9 @@ export async function mountAuthUI({ document, createClient = createServerAuthCli
   let mutationRequest;
   let cardButtons = [];
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+  const operations = operationsUI ?? createOperationsUI({document, fetch:(...args)=>fetchNotes(...args),
+    onDenied:()=>lockDevice('기기 승인 또는 로그인 확인이 필요합니다. 다시 확인해 주세요.')});
 
   const syncNoteControls = () => {
     for (const control of [noteTitle, noteBody, noteSave, noteCancel, ...cardButtons]) {
@@ -244,6 +248,7 @@ export async function mountAuthUI({ document, createClient = createServerAuthCli
     checkDeviceButton.disabled = !signedIn || busy || deviceBusy;
   };
   const lockDevice = message => {
+    operations.clear();
     deviceRegistered = false;
     sessionRevision++;
     mutationRequest?.abort();
@@ -286,6 +291,7 @@ export async function mountAuthUI({ document, createClient = createServerAuthCli
       deviceStatus.textContent = deviceMessages[state.status];
       if (UUID.test(state.requestId ?? '')) deviceRequestId.textContent = `승인 요청 번호: ${state.requestId}`;
       if (deviceRegistered) {
+        operations.open();
         refreshNotes(session, true);
         editor.hidden = false;
         syncNoteControls();

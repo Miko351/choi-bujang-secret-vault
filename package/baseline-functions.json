@@ -13,6 +13,7 @@
     "api/device-registration-options.js",
     "api/device-registration.js",
     "api/device-authentication-options.js",
-    "api/device-authentication.js"
+    "api/device-authentication.js",
+    "api/operations.js"
   ]
 }

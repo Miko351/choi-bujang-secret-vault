@@ -1,5 +1,5 @@
 {
-  "step": 11,
+  "step": 12,
   "repoUrl": "https://github.com/Miko351/choi-bujang-secret-vault",
   "publicAppUrl": "https://choi-bujang-secret-vault-nu.vercel.app",
   "sampleMarker": "SAMPLE_NOTE_1",
@@ -25,7 +25,8 @@
     "POST /api/device-registration-options",
     "POST /api/device-registration",
     "POST /api/device-authentication-options",
-    "POST /api/device-authentication"
+    "POST /api/device-authentication",
+    "GET /api/operations"
   ],
   "originalApiUrl": "https://ytvrtibeicludqdgeltt.supabase.co/rest/v1/vault_notes",
   "restoreRoute": "/api/note-recovery/:id"
