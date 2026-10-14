@@ -1,8 +1,8 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
-  const ownerStage = [4, 5, 6, 7, 8, 9].includes(config.step);
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  const ownerStage = [4, 5, 6, 7, 8, 9, 10].includes(config.step);
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -140,7 +140,7 @@ export async function runAttackChecks(config) {
               observed: '미실행: 공지 API의 서버 승인 권한·DB 소유자 검사 구현. 실제 서버 정책·공지 테이블은 미설정이며 실제 공지 수정 성공은 미확인. 본문 role로 권한을 만들지 않음' },
           );
         }
-        if (config.step === 9) {
+        if (config.step >= 9) {
           // Keep the v2 limit of 20 records without representing virtual tests as HTTP evidence.
           const devices = results.find(item => item.attackId === 'registered_device_note_read');
           devices.attackId = 'device_registration_access';
@@ -157,6 +157,50 @@ export async function runAttackChecks(config) {
               observed: '미실행: 운영 엔진 사건 전달을 확인하지 않음. 확장된 signals·기기 필드는 로컬 시험용이며 심판 계약으로 확인되지 않음' },
             { attackId: 'device_revocation_execution', expected: '심판이 제안 대상 한 기기의 실제 회수와 시간을 확인; 다른 기기와 정상 사용자 유지',
               observed: '미실행: 회수 API·기기 권한 변경·실제 회수 시간 측정을 하지 않음. 탐지 제안을 회수 완료로 기록하지 않음' },
+          );
+        }
+        if (config.step === 10) {
+          // Group only unrun checks; preserve every actual HTTP observation within v2's limit.
+          const mergeUnrun = (firstId, secondId, attackId, expected, observed) => {
+            const first = results.find(item => item.attackId === firstId);
+            Object.assign(first, { attackId, expected, observed });
+            results.splice(results.findIndex(item => item.attackId === secondId), 1);
+          };
+          mergeUnrun('authenticated_a_note_crud', 'authenticated_b_note_crud', 'authenticated_ab_note_crud',
+            '복구 후 A/B 각자 자기 메모 CRUD와 삭제 뒤 GET 404 유지',
+            '미실행: 복구 후 실제 A/B 로그인 요청을 보내지 않음. 과거 화면 성공과 모의 시험은 별도 기록');
+          mergeUnrun('database_direct_privilege', 'anonymous_original_note_read', 'database_original_access',
+            'PUBLIC·anon·authenticated 직접 권한 없음, 원본 anon 요청 자료 없이 거부, 서버 CRUD 유지',
+            '미실행: DB 권한 조회와 원본 anon 요청을 보내지 않음. 공개 키 요청은 심판 확인 항목');
+          mergeUnrun('composite_detection_proposal', 'device_revocation_execution', 'detection_and_revocation',
+            '계약에 맞는 의심 사건만 대상·이유가 있는 propose_revocation; 실제 회수·시간은 심판 확인, 정상 기기 유지',
+            '미실행: 실제 사건 전달·회수·시간 측정 없음. 원본 계약과 로컬 확장 계약의 제안은 실제 기기 회수 증거가 아님');
+          let observed;
+          try {
+            // Invalid ID and empty body cannot select or restore a real note, even if auth fails.
+            const result = await fetch(new URL('/api/note-recovery/not-a-uuid', app), {
+              method: 'POST', credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(10000),
+              headers: { 'Content-Type': 'application/json' }, body: '{}',
+            });
+            let denied = false;
+            if ([401, 403].includes(result.status)
+                && /^application\/json(?:\s*;|$)/iu.test(result.headers.get('content-type') ?? '')) {
+              try {
+                const data = await result.json();
+                denied = data && !Array.isArray(data) && Object.keys(data).join(',') === 'error'
+                  && typeof data.error === 'string' && data.error.length > 0;
+              } catch { /* Never include an upstream body in the bundle. */ }
+            }
+            observed = denied ? `비로그인 복구 POST가 HTTP ${result.status} JSON 오류로 거부됨`
+              : `비로그인 복구 거부 점검 실패 (HTTP ${result.status})`;
+            if (!result.bodyUsed) await result.body?.cancel();
+          } catch { observed = '비로그인 복구 점검 요청 실패'; }
+          results.push(
+            { attackId: 'anonymous_note_restore', expected: '비로그인 복구 POST는 자료 없이 HTTP 401/403 JSON 오류', observed },
+            { attackId: 'trial_policy_restore', expected: '검증된 사본의 버전·차이 확인 후 시험 noteOwners만 복원; A 본인 허용, B→A 거부, 다른 규칙·감사 보존',
+              observed: '미실행: 실제 사전 검증 사본·기록이 없어 시험 정책 적용을 하지 않음. 로컬 모의 복원은 별도 시험' },
+            { attackId: 'private_b_note_restore', expected: 'B 지정 한 건의 ID·소유자·내용 해시가 비공개 사본과 일치, 다른 메모·감사 보존; 잘못된 사본·대상 거부',
+              observed: '미실행: 실제 B 사본·로그인 세션이 없어 DB 복구 요청을 보내지 않음. 모의 DB 시험을 실제 복구로 기록하지 않음' },
           );
         }
         return results;

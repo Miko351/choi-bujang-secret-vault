@@ -9,7 +9,7 @@ import { resourceIdForApiPath } from '../src/decider.mjs';
 // Reuse the starter verifier and its JWKS cache within this server runtime.
 let runtime;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
-function noteOwnerForVerifiedLogin(login) {
+export function noteOwnerForVerifiedLogin(login) {
   if (typeof login?.userId !== 'string' || !UUID.test(login.userId)) return null;
   const subject = login.userId.toLowerCase();
   if (login.kind === 'student') return subject;

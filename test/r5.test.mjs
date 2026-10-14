@@ -409,3 +409,61 @@ test('eighth stage retains real HTTP checks and explicitly records unavailable o
     }
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test('tenth stage checks anonymous recovery without writing and leaves real policy and B restore unrun', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const tenthConfig = { ...config, step: 10,
+    repoUrl: 'https://github.com/student-a/aleph-defense',
+    identityProvider: { issuer: 'https://training.supabase.co/auth/v1' },
+    originalApiUrl: 'https://training.supabase.co/rest/v1/vault_notes' };
+  let restoreResponse = () => Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
+  try {
+    globalThis.fetch = async (url, options) => {
+      const target = new URL(url);
+      calls.push({ target, options });
+      assert.equal(target.origin, new URL(tenthConfig.publicAppUrl).origin);
+      if (target.pathname === '/data.json') return new Response(null, { status: 404 });
+      if (target.pathname === '/aleph.json') return Response.json({ step: 9,
+        repoUrl: tenthConfig.repoUrl, commit: 'f'.repeat(40) });
+      if (target.pathname === '/') return new Response(null, { headers: { 'X-Content-Type-Options': 'nosniff' } });
+      if (target.pathname.startsWith('/api/note-recovery/')) return restoreResponse();
+      return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
+    };
+    const results = await runAttackChecks(tenthConfig);
+    assert.equal(calls.length, 9);
+    assert.equal(results.length, 20);
+    assert.equal(new Set(results.map(item => item.attackId)).size, 20);
+    assert.match(results.find(item => item.attackId === 'deployment_identity').observed, /배포 단계 9.*불일치/u);
+    assert.match(results.find(item => item.attackId === 'deployment_identity').expected, /10단계/u);
+    assert.match(results.find(item => item.attackId === 'anonymous_note_restore').observed, /HTTP 401 JSON 오류/u);
+    assert.equal(results.filter(item => item.observed.startsWith('미실행')).length, 11);
+    for (const id of ['trial_policy_restore', 'private_b_note_restore', 'cross_owner_access',
+      'device_registration_access', 'step_up_confirmation_access', 'resource_zone_access']) {
+      assert.match(results.find(item => item.attackId === id).observed, /^미실행/u);
+    }
+    const recovery = calls.find(item => item.target.pathname.startsWith('/api/note-recovery/'));
+    assert.equal(recovery.target.pathname, '/api/note-recovery/not-a-uuid');
+    assert.equal(recovery.options.method, 'POST');
+    assert.equal(recovery.options.body, '{}');
+    for (const { options } of calls) {
+      assert.equal(options.headers?.Authorization, undefined);
+      assert.equal(options.headers?.apikey, undefined);
+      if (options.credentials) assert.equal(options.credentials, 'omit');
+    }
+    for (const denial of [
+      () => new Response('<html>PRIVATE_TEST_CONTENT</html>', { status: 401 }),
+      () => Response.json({ error: 'LOGIN_REQUIRED', body: 'PRIVATE_TEST_CONTENT' }, { status: 403 }),
+      () => Response.json({ error: 'UNAVAILABLE' }, { status: 503 }),
+    ]) {
+      restoreResponse = denial;
+      const failed = await runAttackChecks(tenthConfig);
+      assert.match(failed.find(item => item.attackId === 'anonymous_note_restore').observed, /점검 실패/u);
+      assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_TEST_CONTENT/u);
+    }
+    restoreResponse = () => { throw new Error('PRIVATE_TEST_CONTENT'); };
+    const failed = await runAttackChecks(tenthConfig);
+    assert.equal(failed.find(item => item.attackId === 'anonymous_note_restore').observed, '비로그인 복구 점검 요청 실패');
+    assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_TEST_CONTENT/u);
+  } finally { globalThis.fetch = originalFetch; }
+});
