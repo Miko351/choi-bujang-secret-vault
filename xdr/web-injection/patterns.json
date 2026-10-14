@@ -1,0 +1,24 @@
+{
+  "technique": "T1190",
+  "source": "https://attack.mitre.org/techniques/T1190/",
+  "patterns": [
+    {
+      "name": "요청 인자의 SQL 구문 삽입",
+      "condition": "요청 인자에 데이터베이스 조회를 이어 붙이거나 원래 조회 조건을 바꾸는 SQL 구문 조합이 있는지 찾는다. 경보가 해당 구문의 반복 요청을 명시한 경우도 포함한다. select 또는 SQL이라는 단어, 따옴표 하나만으로 공격을 확정하지 않는다.",
+      "evidence": "MITRE ATT&CK T1190은 외부 공개 앱을 통한 SQL 주입 사례를 제시하며, MITRE CWE-89는 외부 입력이 원래 SQL 명령의 의미를 바꾸는 취약점을 설명한다.",
+      "source": "https://cwe.mitre.org/data/definitions/89.html"
+    },
+    {
+      "name": "요청 인자의 스크립트 태그 삽입",
+      "condition": "요청 인자에 <script> 같은 실제 스크립트 태그 구조가 삽입되어 있는지 찾는다. 경보가 스크립트 삽입 표식과 반복 요청을 명시한 경우도 포함한다. 수업명이나 설명의 script 또는 스크립트라는 단어만으로 공격을 확정하지 않으며, 태그 발견만으로 실행 성공을 주장하지 않는다.",
+      "evidence": "T1190의 외부 공개 웹앱 악용 맥락에서 참고하는 MITRE CWE-79는 사용자 입력이 웹 페이지에 안전하게 처리되지 않아 스크립트 삽입으로 이어지는 취약점을 설명한다.",
+      "source": "https://cwe.mitre.org/data/definitions/79.html"
+    },
+    {
+      "name": "반복된 상위 경로 이동 표식",
+      "condition": "요청 경로나 경로를 받는 인자에 ../가 반복되어 여러 상위 디렉터리로 이동하려는 구조가 있는지 찾는다. 경보가 반복된 상위 경로 이동 또는 경로 이탈 요청을 명시한 경우도 포함한다. up이라는 단어나 긴 주소만으로 공격을 확정하지 않으며, 표식 발견만으로 파일 접근 성공을 주장하지 않는다.",
+      "evidence": "MITRE ATT&CK T1190은 디렉터리 순회 취약점 악용 사례를 제시하며, MITRE CWE-22는 제한된 디렉터리 밖으로 경로가 벗어나는 취약점을 설명한다.",
+      "source": "https://cwe.mitre.org/data/definitions/22.html"
+    }
+  ]
+}

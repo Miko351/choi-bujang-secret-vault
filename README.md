@@ -1,6 +1,18 @@
 # BYTE BACK 방어전 시작 틀 R5
 
 이 저장소는 방어전 R5 시작 틀에서 출발했습니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
+## 보너스 xdr-02 저장점 · 웹 주입 가상 경보 · 2026-10-14
+
+웹 주입 경보의 시각·출발 주소·계정·수준·설명만 뽑고 비밀값을 가리는 read-alerts.mjs, MITRE ATT&CK T1190과 MITRE CWE 근거의 SQL 구문·스크립트 태그·반복 경로 이동 세 패턴, 독립 실행 decide.mjs, 검증된 차단 대상 전달용 respond.mjs를 추가했습니다. decide.mjs는 패턴을 맨 위 상수로 포함하고 외부 의존성·파일 입출력·네트워크 없이 경보 하나마다 {action,confidence,reason}을 반환합니다. 확신도 0.85 이상 block, 0.5 이상 alert, 그 아래 record이며 단어·경보 수준·횟수만으로 공격을 확정하지 않습니다.
+
+이번 저장점에서 **`npm.cmd run xdr:run -- web-injection`**을 다시 실행해 xdr/web-injection/result.json을 갱신했습니다. **경보·판정 26건, block 7 · alert 1 · record 18**이며 경보 ID·개별 판정·counts·확신도 기준을 대조했습니다. 정상 동작 경보 9건은 모두 record로 정상 block은 0건입니다. 명령 구분자만 있는 경보는 등록된 세 패턴에 해당하지 않아 record입니다. 정답표가 제공되지 않았으므로 경보 내용을 대조한 로컬 결과이며 심판 정답률이나 운영 차단을 의미하지 않습니다.
+
+웹 주입 관련 로컬 시험 17개가 통과했고 사용자가 직접 실행한 판단 시험 7개·대응 시험 5개 통과 출력도 확인했습니다. 단독 파일 실행·세 패턴 상수 일치·인코딩된 인자·정상 단어와 부정 문구·반환 형식·비밀값 제외·원본 보존을 검사했습니다. 모의 등록 연결은 공격 기기만 거부하고 정상 요청과 기존 거부 규칙을 유지하며 만료 뒤 원래 판정으로 돌아갑니다.
+
+respond.mjs는 차단 후보만 재판정해 검증된 기기 한 개의 임시 거부 규칙을 등록 연결에 전달하며, 기본 만료 900초와 근거 경보 번호를 붙입니다. 기존 xdr/alerts.log를 보존하고 민감값 없는 한 줄 알림을 누적합니다. **실제 대상 매핑·ZTNA 등록 연결은 없어 운영 연동은 미완료**입니다. 앞선 기본 대응 실행은 등록 0·보류 7·alert 1·record 18이며 알림 8줄을 추가했습니다. 이 저장점의 xdr:run 재실행은 판단 결과 파일만 갱신하며 대응 알림을 다시 추가하지 않습니다. 실제 엔진 집행은 미실행입니다.
+
+재확인: `node --test test/xdr-web-injection.test.mjs test/xdr-web-injection-read-alerts.test.mjs test/xdr-web-injection-respond.test.mjs`. 결과 재생성은 `npm.cmd run xdr:run -- web-injection`, 별도 대응 연습은 `node xdr/web-injection/respond.mjs`입니다. 원본 경보·기존 ZTNA 규칙 네 개·자료실 기능과 다른 작업은 보존했습니다. 설정 step 12·허용 경로 17개·저장소/배포·발급자·원본 API·judgeIssuer는 유지합니다. 이번 요청은 로컬 재실행과 커밋이며 푸시·배포·제출 묶음 생성은 실행하지 않습니다.
+
 ## 보너스 xdr-01 저장점 · 무차별 로그인 가상 경보 · 2026-10-14
 
 Wazuh 모양의 가상 경보에서 다섯 항목만 뽑는 read-alerts.mjs, MITRE ATT&CK T1110 근거 두 패턴의 patterns.json, 외부 의존성·입출력 없이 판단하는 decide.mjs와 대응 연결 준비용 respond.mjs를 추가했습니다. 판정기는 패턴을 파일 맨 위 상수에 포함하며 확신도 0.85 이상 block, 0.5 이상 alert, 그 아래 record를 반환합니다. 이유에는 패턴 이름 또는 미일치만 남기며 원문·비밀값을 복사하지 않습니다.

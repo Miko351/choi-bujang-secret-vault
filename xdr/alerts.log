@@ -17,3 +17,11 @@
 {"at":"2026-10-14T06:48:27.681Z","evidenceAlertId":"bf-17","action":"alert","confidence":0.55,"pattern":"같은 출발 주소의 연속 로그인 실패","status":"alerted"}
 {"at":"2026-10-14T06:48:27.682Z","evidenceAlertId":"bf-18","action":"alert","confidence":0.6,"pattern":"같은 출발 주소의 연속 로그인 실패","status":"alerted"}
 {"at":"2026-10-14T06:48:27.682Z","evidenceAlertId":"bf-19","action":"alert","confidence":0.55,"pattern":"같은 출발 주소의 연속 로그인 실패","status":"alerted"}
+{"moduleKey":"web-injection","at":"2026-10-14T07:19:40.991Z","evidenceAlertId":"wi-01","action":"block","confidence":0.9,"pattern":"요청 인자의 SQL 구문 삽입","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"web-injection","at":"2026-10-14T07:19:40.996Z","evidenceAlertId":"wi-02","action":"block","confidence":0.9,"pattern":"요청 인자의 스크립트 태그 삽입","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"web-injection","at":"2026-10-14T07:19:40.998Z","evidenceAlertId":"wi-03","action":"block","confidence":0.9,"pattern":"반복된 상위 경로 이동 표식","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"web-injection","at":"2026-10-14T07:19:40.998Z","evidenceAlertId":"wi-04","action":"block","confidence":0.9,"pattern":"요청 인자의 SQL 구문 삽입","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"web-injection","at":"2026-10-14T07:19:40.999Z","evidenceAlertId":"wi-05","action":"block","confidence":0.9,"pattern":"요청 인자의 SQL 구문 삽입","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"web-injection","at":"2026-10-14T07:19:41.000Z","evidenceAlertId":"wi-07","action":"block","confidence":0.9,"pattern":"반복된 상위 경로 이동 표식","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"web-injection","at":"2026-10-14T07:19:41.000Z","evidenceAlertId":"wi-08","action":"block","confidence":0.9,"pattern":"요청 인자의 SQL 구문 삽입","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"web-injection","at":"2026-10-14T07:19:41.001Z","evidenceAlertId":"wi-09","action":"alert","confidence":0.5,"pattern":"요청 인자의 SQL 구문 삽입","status":"alerted"}
