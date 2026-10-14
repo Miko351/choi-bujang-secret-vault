@@ -1,8 +1,8 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
-  const ownerStage = [4, 5, 6, 7, 8, 9, 10, 11].includes(config.step);
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  const ownerStage = [4, 5, 6, 7, 8, 9, 10, 11, 12].includes(config.step);
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -98,11 +98,13 @@ export async function runAttackChecks(config) {
         });
         headerObserved = page.status === 200 && page.headers.get('x-content-type-options')?.toLowerCase() === 'nosniff'
           ? '첫 화면 HTTP 200, nosniff 헤더 확인' : `첫 화면 보안 헤더 점검 실패 (HTTP ${page.status})`;
-        if (config.step === 11) {
+        if (config.step >= 11) {
           const html = await page.text();
           const shell = /rel="manifest"\s+href="\/manifest.webmanifest"/u.test(html)
             && /id="device-register"/u.test(html) && /id="device-check"/u.test(html);
           headerObserved += shell ? '; 설치·기기 승인 화면 표시 확인' : '; 설치·기기 승인 화면 표시 누락';
+          if (config.step === 12) headerObserved += /id="operations"/u.test(html)
+            ? '; 작전실 화면 표시 확인' : '; 작전실 화면 표시 누락';
         } else await page.body?.cancel();
       } catch { headerObserved = '첫 화면 보안 헤더 점검 요청 실패'; }
       results.push({ attackId: 'document_security_header', expected: '첫 화면 HTTP 200, X-Content-Type-Options: nosniff', observed: headerObserved });
@@ -208,7 +210,7 @@ export async function runAttackChecks(config) {
               observed: '미실행: 실제 B 사본·로그인 세션이 없어 DB 복구 요청을 보내지 않음. 모의 DB 시험을 실제 복구로 기록하지 않음' },
           );
         }
-        if (config.step === 11) {
+        if (config.step >= 11) {
           // Group only unrun items to keep all real requests within the v2 20-record limit.
           const group = (ids, attackId, expected, observed) => {
             const first = results.find(item => item.attackId === ids[0]);
@@ -267,6 +269,38 @@ export async function runAttackChecks(config) {
           results.push({attackId:'device_approval_flow',
             expected:'실기기 등록은 pending만 생성, 별도 서버 승인·WebAuthn 증명 뒤 자기 CRUD, 미승인·회수·다른 로그인은 자료 없이 거부',
             observed:'미실행: 실제 SQL 적용·기기 등록/승인·WebAuthn·승인 뒤 A/B 요청 없음. 로컬 SDK·모의 DB 시험과 설치 표시를 승인 증거로 쓰지 않음'});
+        }
+        if (config.step === 12) {
+          // Make room for the real operations request; combine only checks we did not execute.
+          const own = results.find(item => item.attackId === 'authenticated_ab_note_crud');
+          Object.assign(own, { attackId: 'authenticated_ab_and_owner_access',
+            expected: '승인된 A/B 본인 CRUD 유지, 무인증·타인 메모 조회/수정/삭제 거부; 기존 자료 보존',
+            observed: '미실행: 실제 승인 기기 A/B 로그인 세션과 교차 접근 요청 없음. 무인증 요청과 모의 시험으로 타인 접근 거부를 확인했다고 쓰지 않음' });
+          results.splice(results.findIndex(item => item.attackId === 'cross_owner_access'), 1);
+          const screen = results.find(item => item.attackId === 'device_approval_flow');
+          Object.assign(screen, { attackId: 'operations_screen_and_device_access',
+            expected: '별도 기기 승인 뒤 작전실 수치·가린 기록이 같은 API 응답과 일치; 미승인 거부, 기록 미연결은 미실행',
+            observed: '미실행: 실제 SQL·기기 승인·로그인한 작전실 API/화면 대조 없음. 41종 실측은 별도 표에 기록하며 모의 시험·HTML 표시를 실제 수치 일치 증거로 쓰지 않음' });
+          let observed;
+          try {
+            const result = await fetch(new URL('/api/operations', app), {
+              method: 'GET', credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(10000),
+            });
+            let denied = false;
+            if ([401, 403].includes(result.status)
+                && /^application\/json(?:\s*;|$)/iu.test(result.headers.get('content-type') ?? '')) {
+              try {
+                const data = await result.json();
+                denied = data && !Array.isArray(data) && Object.keys(data).join(',') === 'error'
+                  && typeof data.error === 'string' && data.error.length > 0;
+              } catch { /* Never copy a response payload into the bundle. */ }
+            }
+            observed = denied ? `비로그인 작전실 GET이 HTTP ${result.status} JSON 오류로 거부됨`
+              : `비로그인 작전실 거부 점검 실패 (HTTP ${result.status})`;
+            if (!result.bodyUsed) await result.body?.cancel();
+          } catch { observed = '비로그인 작전실 점검 요청 실패'; }
+          results.push({ attackId: 'anonymous_operations_read',
+            expected: '비로그인 작전실 GET은 기록·자료 없이 HTTP 401/403 JSON 오류', observed });
         }
         return results;
       }

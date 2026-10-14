@@ -512,3 +512,62 @@ test('eleventh stage records manifest and anonymous device HTTP separately from 
     for (const item of results) assert.ok(item.expected.length<=300 && item.observed.length<=300);
   } finally {globalThis.fetch=saved;}
 });
+
+test('twelfth stage bundles real anonymous operations HTTP and keeps authenticated screen and cross-owner checks unrun', async () => {
+  const saved = globalThis.fetch;
+  const calls = [];
+  const twelfth = { ...config, step: 12, repoUrl: 'https://github.com/student-a/aleph-defense',
+    identityProvider: { issuer: 'https://training.supabase.co/auth/v1' },
+    originalApiUrl: 'https://training.supabase.co/rest/v1/vault_notes' };
+  let operationsResponse = () => Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
+  try {
+    globalThis.fetch = async (url, options = {}) => {
+      const target = new URL(url);
+      calls.push({ target, options });
+      assert.equal(target.origin, new URL(twelfth.publicAppUrl).origin);
+      assert.equal(options.headers?.Authorization, undefined);
+      assert.equal(options.headers?.apikey, undefined);
+      if (target.pathname === '/data.json') return new Response(null, { status: 404 });
+      if (target.pathname === '/aleph.json') return Response.json({ step: 12, repoUrl: twelfth.repoUrl, commit: 'a'.repeat(40) });
+      if (target.pathname === '/') return new Response('<link rel="manifest" href="/manifest.webmanifest"><button id="device-register"></button><button id="device-check"></button><section id="operations"></section>',
+        { headers: { 'X-Content-Type-Options': 'nosniff' } });
+      if (target.pathname === '/manifest.webmanifest') return Response.json({ name: 'BYTE BACK 내 자료실', short_name: '내 자료실',
+        start_url: '/', scope: '/', display: 'standalone', icons: [192, 512].map(size => ({ src: `/icons/vault-${size}.png`, sizes: `${size}x${size}`, type: 'image/png' })) });
+      if (target.pathname === '/api/operations') return operationsResponse();
+      return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
+    };
+    const results = await runAttackChecks(twelfth);
+    assert.equal(calls.length, 13);
+    assert.equal(results.length, 20);
+    assert.equal(new Set(results.map(item => item.attackId)).size, 20);
+    assert.equal(results.filter(item => item.observed.startsWith('미실행')).length, 7);
+    assert.match(results.find(item => item.attackId === 'anonymous_operations_read').observed, /HTTP 401 JSON/u);
+    assert.match(results.find(item => item.attackId === 'document_security_header').observed, /작전실 화면 표시 확인/u);
+    for (const id of ['authenticated_ab_and_owner_access', 'operations_screen_and_device_access']) {
+      assert.match(results.find(item => item.attackId === id).observed, /^미실행/u);
+    }
+    const operationCall = calls.find(item => item.target.pathname === '/api/operations');
+    assert.equal(operationCall.options.method, 'GET');
+    assert.equal(operationCall.options.credentials, 'omit');
+    assert.ok(calls.every(item => !item.target.pathname.includes('revoke') && !item.target.pathname.includes('login')));
+    for (const item of results) {
+      assert.deepEqual(Object.keys(item).sort(), ['attackId', 'expected', 'observed']);
+      assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
+    }
+    for (const denial of [
+      () => new Response('<html>PRIVATE_CONTENT</html>', { status: 401 }),
+      () => Response.json({ error: 'LOGIN_REQUIRED', body: 'PRIVATE_CONTENT' }, { status: 403 }),
+      () => Response.json({ records: ['PRIVATE_CONTENT'] }),
+      () => Response.json({ error: 'UNAVAILABLE' }, { status: 503 }),
+    ]) {
+      operationsResponse = denial;
+      const failed = await runAttackChecks(twelfth);
+      assert.match(failed.find(item => item.attackId === 'anonymous_operations_read').observed, /점검 실패/u);
+      assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_CONTENT/u);
+    }
+    operationsResponse = () => { throw new Error('PRIVATE_CONTENT'); };
+    const failed = await runAttackChecks(twelfth);
+    assert.equal(failed.find(item => item.attackId === 'anonymous_operations_read').observed, '비로그인 작전실 점검 요청 실패');
+    assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_CONTENT/u);
+  } finally { globalThis.fetch = saved; }
+});
