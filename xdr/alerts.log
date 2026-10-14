@@ -57,3 +57,20 @@
 {"moduleKey":"persistence","at":"2026-10-14T08:09:06.144Z","evidenceAlertId":"ps-14","action":"alert","confidence":0.65,"pattern":"시작 폴더의 낯선 프로그램 추가","status":"alerted"}
 {"moduleKey":"persistence","at":"2026-10-14T08:09:06.145Z","evidenceAlertId":"ps-15","action":"alert","confidence":0.5,"pattern":"낯선 예약 작업과 의심스러운 실행 대상","status":"alerted"}
 {"moduleKey":"persistence","at":"2026-10-14T08:09:06.145Z","evidenceAlertId":"ps-16","action":"alert","confidence":0.5,"pattern":"낯선 서비스 등록·실행 파일 변경","status":"alerted"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.486Z","evidenceAlertId":"pv-01","action":"block","confidence":0.85,"pattern":"승인 범위를 벗어난 관리자 그룹 추가","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.491Z","evidenceAlertId":"pv-02","action":"block","confidence":0.85,"pattern":"낯선 관리자 명령과 권한 상승 정황","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.492Z","evidenceAlertId":"pv-03","action":"block","confidence":0.9,"pattern":"업무 시간 밖의 낯선 권한 사용","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.493Z","evidenceAlertId":"pv-04","action":"block","confidence":0.85,"pattern":"승인 범위를 벗어난 관리자 그룹 추가","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.494Z","evidenceAlertId":"pv-05","action":"block","confidence":0.85,"pattern":"승인 범위를 벗어난 관리자 그룹 추가","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.495Z","evidenceAlertId":"pv-06","action":"block","confidence":0.85,"pattern":"낯선 관리자 명령과 권한 상승 정황","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.495Z","evidenceAlertId":"pv-07","action":"block","confidence":0.95,"pattern":"승인 범위를 벗어난 관리자 그룹 추가","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.496Z","evidenceAlertId":"pv-08","action":"block","confidence":0.85,"pattern":"낯선 관리자 명령과 권한 상승 정황","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.496Z","evidenceAlertId":"pv-09","action":"block","confidence":0.85,"pattern":"승인 범위를 벗어난 관리자 그룹 추가","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.497Z","evidenceAlertId":"pv-10","action":"alert","confidence":0.5,"pattern":"낯선 관리자 명령과 권한 상승 정황","status":"alerted"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.498Z","evidenceAlertId":"pv-11","action":"alert","confidence":0.5,"pattern":"승인 범위를 벗어난 관리자 그룹 추가","status":"alerted"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.499Z","evidenceAlertId":"pv-12","action":"alert","confidence":0.65,"pattern":"낯선 관리자 명령과 권한 상승 정황","status":"alerted"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.499Z","evidenceAlertId":"pv-13","action":"alert","confidence":0.5,"pattern":"낯선 관리자 명령과 권한 상승 정황","status":"alerted"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.500Z","evidenceAlertId":"pv-14","action":"alert","confidence":0.5,"pattern":"낯선 관리자 명령과 권한 상승 정황","status":"alerted"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.500Z","evidenceAlertId":"pv-15","action":"alert","confidence":0.5,"pattern":"승인 범위를 벗어난 관리자 그룹 추가","status":"alerted"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.501Z","evidenceAlertId":"pv-16","action":"alert","confidence":0.5,"pattern":"낯선 관리자 명령과 권한 상승 정황","status":"alerted"}
+{"moduleKey":"privilege","at":"2026-10-14T11:28:02.501Z","evidenceAlertId":"pv-17","action":"alert","confidence":0.5,"pattern":"승인 범위를 벗어난 관리자 그룹 추가","status":"alerted"}
