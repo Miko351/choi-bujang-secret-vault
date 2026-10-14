@@ -66,10 +66,10 @@ test('a trusted mock rule sink denies only the verified attack device, preserves
 
 test('provided fixtures without an engine binding stay pending and never block normal or ambiguous events',async()=>inTemp(async directory=>{
   const {counts,outcomes}=await respondFixture({logPath:join(directory,'alerts.log'),now:()=>now});
-  assert.deepEqual(counts,{registered:0,pending:7,registration_unconfirmed:0,alerted:1,recorded:18});
+  assert.deepEqual(counts,{registered:0,pending:8,registration_unconfirmed:0,alerted:9,recorded:9});
   assert.equal(outcomes.length,26);
   const entries=(await readFile(join(directory,'alerts.log'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
-  assert.equal(entries.length,8);
+  assert.equal(entries.length,17);
   assert.ok(entries.filter(entry=>entry.status==='pending').every(entry=>entry.action==='block'));
   assert.ok(entries.filter(entry=>entry.status==='alerted').every(entry=>entry.action==='alert'));
   assert.ok(entries.every(entry=>entry.moduleKey==='web-injection'&&!Object.hasOwn(entry,'match')&&!Object.hasOwn(entry,'sourceIp')));

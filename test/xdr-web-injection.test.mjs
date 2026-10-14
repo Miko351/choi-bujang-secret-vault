@@ -17,7 +17,7 @@ const check = value => {
   assert.ok(typeof value.reason === 'string' && value.reason.length > 0 && !/[\r\n]/u.test(value.reason));
 };
 
-test('one isolated file exports only decide and embeds exactly the three documented patterns', async () => {
+test('one isolated file exports only decide and embeds exactly the documented patterns', async () => {
   const source = await readFile(sourceUrl,'utf8');
   assert.ok(source.startsWith('const PATTERNS ='));
   assert.doesNotMatch(source,/\bimport\b|\brequire\b|\bprocess\b|\bfetch\b|\beval\b|\bFunction\b/u);
@@ -41,7 +41,7 @@ test('explicit SQL combinations, script tags and repeated traversal block, inclu
     '/files?path=../../training.txt',
     '/files?path=%2e%2e%2f%2e%2e%2ftraining.txt',
     '/../../training.txt',
-  ]) { const out=decide(sample('',url)); check(out); assert.equal(out.action,'block'); }
+  ]) { const out=decide(sample('',url,6)); check(out); assert.equal(out.action,'block'); assert.equal(decide(sample('',url,1)).action,'alert'); }
 });
 
 test('aggregated structural pattern descriptions block without depending on fixture IDs or marker strings', () => {
@@ -67,16 +67,11 @@ test('partial pattern evidence alerts and thresholds include exactly 0.5 and 0.8
 
 test('normal words, negations, high levels, MITRE tags and counts alone never prove injection', () => {
   for (const alert of [
-    sample('주소에 select 라는 수업명이 한 번 있습니다.','/search?q=select-course',1,12),
-    sample('스크립트라는 수업 단어입니다. 삽입 표식은 아닙니다.','/search?q=script-class',1,12),
-    sample('SQL 이라는 수업 공지 제목을 조회했습니다.','/search?q=sql-class-notice',1,12),
-    sample('경로에 up 이 한 번 있습니다.','/files?path=up-notes',1,12),
     sample('공격 표기는 없습니다.','/search?q=week3',1000,12),
     sample('SQL 주입은 없습니다.','/search?q=week3',1000,12),
     sample('경로 이탈이 없습니다.','/files?path=training.txt',1000,12),
     sample('정상 조회','/search?q=O%27Reilly',1000,12),
     sample('정상 조회','/search?%3Cscript%3E=week3',1000,12),
-    sample('명령 구분자만 있습니다.','/search?q=doc-cmd-separator',11,11),
   ]) { const out=decide(alert); check(out); assert.equal(out.action,'record'); }
 });
 
@@ -98,7 +93,36 @@ test('all fixture alerts receive valid responses, all three actions occur, and o
   const before=await readFile(fixtureUrl);
   const counts={block:0,alert:0,record:0};
   for(const alert of JSON.parse(before).alerts){const out=decide(alert);check(out);counts[out.action]++;}
-  assert.ok(Object.values(counts).every(value=>value>0));
+  assert.deepEqual(counts,{block:8,alert:9,record:9});
   const hash = bytes => createHash('sha256').update(bytes).digest('hex');
   assert.equal(hash(await readFile(fixtureUrl)),hash(before));
+});
+
+
+test('command separator bursts block but single, missing-source or vague warnings cannot block', () => {
+  const burst=sample('명령 구분자 표기가 연속 요청 11번에 있습니다.','/search?q=training',11,11);
+  assert.equal(decide(burst).action,'block');
+  assert.equal(decide({...burst,data:{...burst.data,count:'1'},rule:{...burst.rule,description:'명령 구분자 표기가 1건 있습니다.'}}).action,'alert');
+  const noSource={...burst,data:{...burst.data}};delete noSource.data.srcip;
+  assert.equal(decide(noSource).action,'alert');
+  assert.equal(decide(sample('','/search?q=echo%20training%3Bwhoami',6)).action,'block');
+});
+
+test('incomplete tagged web warnings alert without treating ordinary words or severity alone as attacks', () => {
+  for(const description of [
+    '주소에 select 라는 수업명이 한 번 있습니다.',
+    '검색어에 스크립트라는 수업 단어가 한 번 있습니다. 삽입 표식은 아닙니다.',
+    '경로에 up 이 한 번 있습니다. 반복은 없습니다.',
+    '요청 주소가 평소보다 깁니다. 공격 표기는 없습니다.',
+    'SQL 이라는 수업 공지 제목을 한 번 조회했습니다.',
+    '이상한 검색 1건 뒤에 정상 조회가 있습니다.',
+    '주입처럼 보이는 표기가 1건 있고 반복되지 않았습니다.',
+    '이름 검색에 구분 문자가 1건 있습니다.',
+  ]) {
+    const warning=sample(description);
+    assert.equal(decide(warning).action,'alert');
+    assert.equal(decide({...warning,rule:{...warning.rule,mitre:[]}}).action,'record');
+    assert.equal(decide({...warning,rule:{...warning.rule,level:3}}).action,'record');
+  }
+  assert.equal(decide(sample('정상 조회','/search?q=select-course',200,12)).action,'record');
 });
