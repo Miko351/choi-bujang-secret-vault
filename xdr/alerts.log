@@ -41,3 +41,19 @@
 {"moduleKey":"known-cve","at":"2026-10-14T07:44:51.101Z","evidenceAlertId":"kc-14","action":"alert","confidence":0.5,"pattern":"요청 인자의 JNDI 원격 조회 구문","status":"alerted"}
 {"moduleKey":"known-cve","at":"2026-10-14T07:44:51.102Z","evidenceAlertId":"kc-15","action":"alert","confidence":0.5,"pattern":"요청 인자의 JNDI 원격 조회 구문","status":"alerted"}
 {"moduleKey":"known-cve","at":"2026-10-14T07:44:51.102Z","evidenceAlertId":"kc-16","action":"alert","confidence":0.5,"pattern":"요청 인자의 JNDI 원격 조회 구문","status":"alerted"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.130Z","evidenceAlertId":"ps-01","action":"block","confidence":0.9,"pattern":"낯선 서비스 등록·실행 파일 변경","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.135Z","evidenceAlertId":"ps-02","action":"block","confidence":0.9,"pattern":"낯선 예약 작업과 의심스러운 실행 대상","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.137Z","evidenceAlertId":"ps-03","action":"block","confidence":0.85,"pattern":"시작 폴더의 낯선 프로그램 추가","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.138Z","evidenceAlertId":"ps-04","action":"block","confidence":0.85,"pattern":"낯선 서비스 등록·실행 파일 변경","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.139Z","evidenceAlertId":"ps-05","action":"block","confidence":0.9,"pattern":"낯선 예약 작업과 의심스러운 실행 대상","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.139Z","evidenceAlertId":"ps-06","action":"block","confidence":0.9,"pattern":"낯선 서비스 등록·실행 파일 변경","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.140Z","evidenceAlertId":"ps-07","action":"block","confidence":0.9,"pattern":"낯선 예약 작업과 의심스러운 실행 대상","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.141Z","evidenceAlertId":"ps-08","action":"block","confidence":0.9,"pattern":"낯선 서비스 등록·실행 파일 변경","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.141Z","evidenceAlertId":"ps-09","action":"alert","confidence":0.65,"pattern":"낯선 예약 작업과 의심스러운 실행 대상","status":"alerted"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.142Z","evidenceAlertId":"ps-10","action":"alert","confidence":0.5,"pattern":"시작 폴더의 낯선 프로그램 추가","status":"alerted"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.142Z","evidenceAlertId":"ps-11","action":"alert","confidence":0.5,"pattern":"낯선 서비스 등록·실행 파일 변경","status":"alerted"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.143Z","evidenceAlertId":"ps-12","action":"alert","confidence":0.5,"pattern":"낯선 예약 작업과 의심스러운 실행 대상","status":"alerted"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.143Z","evidenceAlertId":"ps-13","action":"alert","confidence":0.5,"pattern":"낯선 서비스 등록·실행 파일 변경","status":"alerted"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.144Z","evidenceAlertId":"ps-14","action":"alert","confidence":0.65,"pattern":"시작 폴더의 낯선 프로그램 추가","status":"alerted"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.145Z","evidenceAlertId":"ps-15","action":"alert","confidence":0.5,"pattern":"낯선 예약 작업과 의심스러운 실행 대상","status":"alerted"}
+{"moduleKey":"persistence","at":"2026-10-14T08:09:06.145Z","evidenceAlertId":"ps-16","action":"alert","confidence":0.5,"pattern":"낯선 서비스 등록·실행 파일 변경","status":"alerted"}

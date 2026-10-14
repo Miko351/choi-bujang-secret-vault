@@ -1,6 +1,16 @@
 # BYTE BACK 방어전 시작 틀 R5
 
 이 저장소는 방어전 R5 시작 틀에서 출발했습니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
+## 보너스 xdr-04 저장점 · 지속성 가상 경보 · 2026-10-14
+
+persistence에 다섯 항목만 추출하고 비밀값을 가리는 read-alerts.mjs, 서비스 등록·실행 파일 변경/낯선 예약 작업/시작 폴더 변경 세 패턴의 patterns.json, 외부 의존성·입출력 없는 decide.mjs, 대응 연결 준비용 respond.mjs를 추가했습니다. 근거는 MITRE ATT&CK T1543.003·T1053.005이며 시작 폴더에는 T1547.001을 보완 출처로 명시했습니다. 판단 파일 맨 위 상수는 패턴 정의와 일치하고 decide(alert)만 내보내며 확신도 0.85 이상 block, 0.5 이상 alert, 그 아래 record를 반환합니다. 서명 미확인을 서명 없음으로 추정하지 않고 정상 목록 읽기·기존 작업과 실제 변경을 구별합니다.
+
+이번 저장점에서 **`npm.cmd run xdr:run -- persistence`**를 다시 실행해 result.json을 갱신했습니다. **경보·판정 24건 = block 8 · alert 8 · record 8**, 정상 경보 8건은 모두 record이고 정상 block 0건입니다. 경보 ID·개별 판정·counts·확신도 기준을 대조했습니다. 관련 로컬 시험 19개가 통과했고 사용자의 읽기·판단 시험 13개와 대응 시험 6개 통과 출력도 확인했습니다. 정답표가 제공되지 않았으므로 로컬 경보 대조와 모의 시험 결과이며 심판 통과나 실제 운영 차단의 증거가 아닙니다.
+
+respond.mjs는 차단 후보만 다시 판정해 사건이 관측된 검증 기기 한 개의 임시 거부 규칙 등록 연결에 만료 시각(기본 900초)과 근거 경보 번호를 전달합니다. 모의 연결에서 공격 기기만 거부·정상 요청 유지·만료·기존 규칙과 감사 이력 보존을 확인했습니다. **실제 대상 매핑·ZTNA 등록 연결은 없어 운영 연동은 미완료**입니다. 앞선 기본 실행은 등록 0·보류 8·alert 8·record 8로 기존 xdr/alerts.log를 보존하며 안전한 알림 16줄을 추가했습니다. 이번 xdr:run 재실행은 result.json만 갱신하고 대응 알림을 다시 추가하지 않습니다. 실제 서비스·예약 작업·시작 항목은 변경하지 않았습니다.
+
+재확인: `node --test test/xdr-persistence.test.mjs test/xdr-persistence-read-alerts.test.mjs test/xdr-persistence-respond.test.mjs`. 결과 갱신은 `npm.cmd run xdr:run -- persistence`, 별도 대응 연습은 `node xdr/persistence/respond.mjs`입니다. 원본 경보·기존 ZTNA 규칙 네 개·다른 과제·자료실 기능은 보존했습니다. 설정 step 12·허용 경로 17개·저장소/배포·발급자·원본 API·judgeIssuer를 대조하고 유지합니다. 직전 저장점은 f02312a입니다. 이번 요청은 로컬 재실행과 커밋이며 푸시·배포·제출 묶음 생성은 실행하지 않습니다.
+
 ## 보너스 xdr-03 저장점 · 알려진 취약점 가상 경보 · 2026-10-14
 
 known-cve에 다섯 항목만 추출하고 비밀값을 가리는 read-alerts.mjs, CVE-2021-44228·MITRE ATT&CK T1190·Apache/CISA 출처의 세 패턴, 외부 의존성·입출력 없는 decide.mjs, 대응 연결 준비용 respond.mjs를 추가했습니다. 세 패턴은 판단 파일 맨 위 상수와 일치하며 decide(alert)만 내보냅니다. 완전한 원격 조회 구문은 block, 불완전한 경보는 alert, 정상 동작은 record로 구별하고 확신도 0.85/0.5 기준을 적용합니다. 문서용 조회 문자열은 실행하거나 외부 접속에 사용하지 않습니다.
