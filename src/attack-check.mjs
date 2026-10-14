@@ -46,18 +46,22 @@ export async function runAttackChecks(config) {
     const results = [{ attackId: 'anonymous_static_note_read', expected: '정적 /data.json 파일 없음',
       observed: response.status === 404 ? '정적 자료 요청이 HTTP 404로 거부됨'
         : `정적 자료 제거 점검 실패 (HTTP ${response.status})` }];
-    // Invalid IDs and empty bodies cannot change a note even if login protection fails.
+    // Submission checks are read-only; write-method checks remain explicitly unrun.
     for (const [method, path] of [
       ['GET', '/api/notes'], ['POST', '/api/notes'],
       ['PUT', '/api/notes/not-a-uuid'], ['DELETE', '/api/notes/not-a-uuid'],
       ...(ownerStage ? [['GET', '/api/notes/not-a-uuid']] : []),
     ]) {
+      if (!['GET', 'HEAD'].includes(method)) {
+        results.push({ attackId: `anonymous_note_${method.toLowerCase()}`,
+          expected: `비로그인 ${method} 요청은 자료 없이 HTTP ${ownerStage ? '401/403 JSON 오류' : '401'}`,
+          observed: 'not_run' });
+        continue;
+      }
       let observed;
       try {
         const result = await fetch(new URL(path, app), {
           method, credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(10000),
-          ...(['POST', 'PUT'].includes(method)
-            ? { headers: { 'Content-Type': 'application/json' }, body: '{}' } : {}),
         });
         let jsonDenial = false;
         if (ownerStage && /^application\/json(?:\s*;|$)/iu.test(result.headers.get('content-type') ?? '')) {
@@ -182,26 +186,7 @@ export async function runAttackChecks(config) {
           mergeUnrun('composite_detection_proposal', 'device_revocation_execution', 'detection_and_revocation',
             '계약에 맞는 의심 사건만 대상·이유가 있는 propose_revocation; 실제 회수·시간은 심판 확인, 정상 기기 유지',
             '미실행: 실제 사건 전달·회수·시간 측정 없음. 원본 계약과 로컬 확장 계약의 제안은 실제 기기 회수 증거가 아님');
-          let observed;
-          try {
-            // Invalid ID and empty body cannot select or restore a real note, even if auth fails.
-            const result = await fetch(new URL('/api/note-recovery/not-a-uuid', app), {
-              method: 'POST', credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(10000),
-              headers: { 'Content-Type': 'application/json' }, body: '{}',
-            });
-            let denied = false;
-            if ([401, 403].includes(result.status)
-                && /^application\/json(?:\s*;|$)/iu.test(result.headers.get('content-type') ?? '')) {
-              try {
-                const data = await result.json();
-                denied = data && !Array.isArray(data) && Object.keys(data).join(',') === 'error'
-                  && typeof data.error === 'string' && data.error.length > 0;
-              } catch { /* Never include an upstream body in the bundle. */ }
-            }
-            observed = denied ? `비로그인 복구 POST가 HTTP ${result.status} JSON 오류로 거부됨`
-              : `비로그인 복구 거부 점검 실패 (HTTP ${result.status})`;
-            if (!result.bodyUsed) await result.body?.cancel();
-          } catch { observed = '비로그인 복구 점검 요청 실패'; }
+          const observed = 'not_run';
           results.push(
             { attackId: 'anonymous_note_restore', expected: '비로그인 복구 POST는 자료 없이 HTTP 401/403 JSON 오류', observed },
             { attackId: 'trial_policy_restore', expected: '검증된 사본의 버전·차이 확인 후 시험 noteOwners만 복원; A 본인 허용, B→A 거부, 다른 규칙·감사 보존',
@@ -250,10 +235,13 @@ export async function runAttackChecks(config) {
             ['anonymous_device_status','/api/device-status','GET'],
             ['anonymous_device_registration','/api/device-registration','POST'],
           ]) {
+            if (!['GET', 'HEAD'].includes(method)) {
+              results.push({attackId,expected:'비로그인 기기 상태·등록 요청은 자료 없이 HTTP 401/403 JSON 오류',observed:'not_run'});
+              continue;
+            }
             let observed;
             try {
-              const result = await fetch(new URL(path,app),{method,credentials:'omit',redirect:'error',signal:AbortSignal.timeout(10000),
-                ...(method === 'POST'?{headers:{'Content-Type':'application/json'},body:'{}'}:{})});
+              const result = await fetch(new URL(path,app),{method,credentials:'omit',redirect:'error',signal:AbortSignal.timeout(10000)});
               let denied=false;
               if ([401,403].includes(result.status) && /^application\/json(?:\s*;|$)/iu.test(result.headers.get('content-type')??'')) {
                 try {const data=await result.json();denied=data && !Array.isArray(data)
@@ -301,6 +289,10 @@ export async function runAttackChecks(config) {
           } catch { observed = '비로그인 작전실 점검 요청 실패'; }
           results.push({ attackId: 'anonymous_operations_read',
             expected: '비로그인 작전실 GET은 기록·자료 없이 HTTP 401/403 JSON 오류', observed });
+        }
+        if (config.step === 12) {
+          // The stage 12 submission distinguishes all unexecuted checks using the sandbox marker.
+          for (const item of results) if (item.observed.startsWith('미실행')) item.observed = 'not_run';
         }
         return results;
       }

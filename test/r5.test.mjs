@@ -148,7 +148,7 @@ test('first attack check reads public data.json without credentials', async () =
   }
 });
 
-test('third stage self-check reports HTTP denials honestly and never attempts a valid write', async () => {
+test('third stage self-check reports read denials and leaves every write not_run', async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   try {
@@ -157,20 +157,20 @@ test('third stage self-check reports HTTP denials honestly and never attempts a 
       return new Response(null, { status: String(url).endsWith('/data.json') ? 404 : 401 });
     };
     const results = await runAttackChecks({ ...config, step: 3 });
-    assert.equal(calls.length, 5);
+    assert.equal(calls.length, 2);
     assert.equal(results.length, 6);
     assert.match(results[0].observed, /HTTP 404/u);
-    for (const result of results.slice(1, 5)) assert.match(result.observed, /HTTP 401/u);
+    for (const result of results.slice(1, 5).filter(item => item.observed !== 'not_run')) assert.match(result.observed, /HTTP 401/u);
     assert.match(results[5].observed, /미실행/u);
     for (const { url, options } of calls.slice(1)) {
       assert.equal(options.credentials, 'omit');
       assert.equal(options.headers?.Authorization, undefined);
-      if (['POST', 'PUT'].includes(options.method)) assert.equal(options.body, '{}');
-      if (['PUT', 'DELETE'].includes(options.method)) assert.equal(url.pathname, '/api/notes/not-a-uuid');
+      assert.ok(['GET', 'HEAD'].includes(options.method ?? 'GET'));
+      assert.equal(options.body, undefined);
     }
     globalThis.fetch = async url => new Response(null, { status: String(url).endsWith('/data.json') ? 404 : 503 });
     const failed = await runAttackChecks({ ...config, step: 3 });
-    for (const result of failed.slice(1, 5)) assert.match(result.observed, /실패.*HTTP 503/u);
+    for (const result of failed.slice(1, 5).filter(item => item.observed !== 'not_run')) assert.match(result.observed, /실패.*HTTP 503/u);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -190,10 +190,10 @@ test('fourth stage self-check rejects HTML denials and reports stale deployments
       return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
     };
     const results = await runAttackChecks(fourthConfig);
-    assert.equal(calls.length, 8);
+    assert.equal(calls.length, 5);
     assert.equal(results.length, 11);
     assert.equal(new Set(results.map(result => result.attackId)).size, results.length);
-    for (const result of results.slice(1, 6)) assert.match(result.observed, /HTTP 401 JSON 오류/u);
+    for (const result of results.slice(1, 6).filter(item => item.observed !== 'not_run')) assert.match(result.observed, /HTTP 401 JSON 오류/u);
     assert.match(results[6].observed, /배포 단계 3.*불일치/u);
     assert.match(results[7].observed, /nosniff 헤더 확인/u);
     for (const result of results.slice(8)) assert.match(result.observed, /^미실행/u);
@@ -201,8 +201,8 @@ test('fourth stage self-check rejects HTML denials and reports stale deployments
       if (path === '/data.json') continue;
       assert.equal(options.credentials, 'omit');
       assert.equal(options.headers?.Authorization, undefined);
-      if (['POST', 'PUT'].includes(options.method)) assert.equal(options.body, '{}');
-      if (['PUT', 'DELETE'].includes(options.method)) assert.equal(path, '/api/notes/not-a-uuid');
+      assert.ok(['GET', 'HEAD'].includes(options.method ?? 'GET'));
+      assert.equal(options.body, undefined);
     }
     for (const denial of [
       () => new Response('<html>PRIVATE_TEST_CONTENT</html>', { status: 401 }),
@@ -212,7 +212,7 @@ test('fourth stage self-check rejects HTML denials and reports stale deployments
       globalThis.fetch = async url => String(url).endsWith('/data.json')
         ? new Response(null, { status: 404 }) : denial();
       const failed = await runAttackChecks(fourthConfig);
-      for (const result of failed.slice(1, 6)) assert.match(result.observed, /점검 실패/u);
+      for (const result of failed.slice(1, 6).filter(item => item.observed !== 'not_run')) assert.match(result.observed, /점검 실패/u);
       assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_TEST_CONTENT/u);
     }
   } finally {
@@ -239,10 +239,10 @@ test('fifth stage validates the original route without sending it keys or treati
       return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 403 });
     };
     const results = await runAttackChecks(fifthConfig);
-    assert.equal(calls.length, 8);
+    assert.equal(calls.length, 5);
     assert.equal(results.length, 13);
     assert.equal(new Set(results.map(item => item.attackId)).size, results.length);
-    for (const item of results.slice(1, 6)) assert.match(item.observed, /HTTP 403 JSON 오류/u);
+    for (const item of results.slice(1, 6).filter(item => item.observed !== 'not_run')) assert.match(item.observed, /HTTP 403 JSON 오류/u);
     assert.match(results[6].expected, /5단계/u);
     assert.match(results[6].observed, /배포 단계 5.*일치/u);
     for (const item of results.slice(8)) assert.match(item.observed, /^미실행/u);
@@ -251,7 +251,8 @@ test('fifth stage validates the original route without sending it keys or treati
     for (const { options } of calls) {
       assert.equal(options.headers?.Authorization, undefined);
       assert.equal(options.headers?.apikey, undefined);
-      if (['POST', 'PUT'].includes(options.method)) assert.equal(options.body, '{}');
+      assert.ok(['GET', 'HEAD'].includes(options.method ?? 'GET'));
+      assert.equal(options.body, undefined);
     }
     for (const originalApiUrl of [null,
       'http://training.supabase.co/rest/v1/vault_notes',
@@ -260,7 +261,7 @@ test('fifth stage validates the original route without sending it keys or treati
       'https://other.supabase.co/rest/v1/vault_notes',
       'https://training.supabase.co/rest/v1/other_table',
     ]) await assert.rejects(runAttackChecks({ ...fifthConfig, originalApiUrl }), /5단계 원본/u);
-    assert.equal(calls.length, 8);
+    assert.equal(calls.length, 5);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -285,7 +286,7 @@ test('sixth stage records only deployment HTTP results and leaves live device ch
       return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
     };
     const results = await runAttackChecks(sixthConfig);
-    assert.equal(calls.length, 8);
+    assert.equal(calls.length, 5);
     assert.equal(results.length, 15);
     assert.equal(new Set(results.map(item => item.attackId)).size, results.length);
     assert.match(results[6].expected, /6단계/u);
@@ -298,7 +299,8 @@ test('sixth stage records only deployment HTTP results and leaves live device ch
     for (const { options } of calls) {
       assert.equal(options.headers?.Authorization, undefined);
       assert.equal(options.headers?.apikey, undefined);
-      if (['POST', 'PUT'].includes(options.method)) assert.equal(options.body, '{}');
+      assert.ok(['GET', 'HEAD'].includes(options.method ?? 'GET'));
+      assert.equal(options.body, undefined);
     }
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -322,7 +324,7 @@ test('seventh stage leaves engine step up and fresh login checks unrun while rep
       return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
     };
     const results = await runAttackChecks(seventhConfig);
-    assert.equal(calls.length, 8);
+    assert.equal(calls.length, 5);
     assert.equal(results.length, 18);
     assert.equal(new Set(results.map(item => item.attackId)).size, results.length);
     assert.match(results[6].observed, /배포 단계 6.*불일치/u);
@@ -333,12 +335,13 @@ test('seventh stage leaves engine step up and fresh login checks unrun while rep
     for (const { options } of calls) {
       assert.equal(options.headers?.Authorization, undefined);
       assert.equal(options.headers?.apikey, undefined);
-      if (['POST', 'PUT'].includes(options.method)) assert.equal(options.body, '{}');
+      assert.ok(['GET', 'HEAD'].includes(options.method ?? 'GET'));
+      assert.equal(options.body, undefined);
     }
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('ninth stage retains eight HTTP requests and leaves detection and revocation unrun', async () => {
+test('ninth stage retains five read-only HTTP requests and leaves detection and revocation unrun', async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const ninthConfig = { ...config, step: 9,
@@ -357,7 +360,7 @@ test('ninth stage retains eight HTTP requests and leaves detection and revocatio
       return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
     };
     const results = await runAttackChecks(ninthConfig);
-    assert.equal(calls.length, 8);
+    assert.equal(calls.length, 5);
     assert.equal(results.length, 20);
     assert.equal(new Set(results.map(item => item.attackId)).size, results.length);
     assert.match(results[6].observed, /배포 단계 8.*불일치/u);
@@ -374,7 +377,8 @@ test('ninth stage retains eight HTTP requests and leaves detection and revocatio
     for (const { options } of calls) {
       assert.equal(options.headers?.Authorization, undefined);
       assert.equal(options.headers?.apikey, undefined);
-      if (['POST', 'PUT'].includes(options.method)) assert.equal(options.body, '{}');
+      assert.ok(['GET', 'HEAD'].includes(options.method ?? 'GET'));
+      assert.equal(options.body, undefined);
     }
     assert.ok(calls.every(({ target }) => !target.pathname.includes('revoke')));
   } finally { globalThis.fetch = originalFetch; }
@@ -399,7 +403,7 @@ test('eighth stage retains real HTTP checks and explicitly records unavailable o
       return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
     };
     const results = await runAttackChecks(eighthConfig);
-    assert.equal(calls.length, 8);
+    assert.equal(calls.length, 5);
     assert.equal(results.length, 20);
     assert.equal(new Set(results.map(item => item.attackId)).size, results.length);
     assert.match(results[6].observed, /배포 단계 7.*불일치/u);
@@ -409,19 +413,19 @@ test('eighth stage retains real HTTP checks and explicitly records unavailable o
     for (const { options } of calls) {
       assert.equal(options.headers?.Authorization, undefined);
       assert.equal(options.headers?.apikey, undefined);
-      if (['POST', 'PUT'].includes(options.method)) assert.equal(options.body, '{}');
+      assert.ok(['GET', 'HEAD'].includes(options.method ?? 'GET'));
+      assert.equal(options.body, undefined);
     }
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('tenth stage checks anonymous recovery without writing and leaves real policy and B restore unrun', async () => {
+test('tenth stage leaves recovery POST not_run and preserves real policy and B restore as unrun', async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const tenthConfig = { ...config, step: 10,
     repoUrl: 'https://github.com/student-a/aleph-defense',
     identityProvider: { issuer: 'https://training.supabase.co/auth/v1' },
     originalApiUrl: 'https://training.supabase.co/rest/v1/vault_notes' };
-  let restoreResponse = () => Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
   try {
     globalThis.fetch = async (url, options) => {
       const target = new URL(url);
@@ -431,44 +435,26 @@ test('tenth stage checks anonymous recovery without writing and leaves real poli
       if (target.pathname === '/aleph.json') return Response.json({ step: 9,
         repoUrl: tenthConfig.repoUrl, commit: 'f'.repeat(40) });
       if (target.pathname === '/') return new Response(null, { headers: { 'X-Content-Type-Options': 'nosniff' } });
-      if (target.pathname.startsWith('/api/note-recovery/')) return restoreResponse();
       return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
     };
     const results = await runAttackChecks(tenthConfig);
-    assert.equal(calls.length, 9);
+    assert.equal(calls.length, 5);
     assert.equal(results.length, 20);
     assert.equal(new Set(results.map(item => item.attackId)).size, 20);
     assert.match(results.find(item => item.attackId === 'deployment_identity').observed, /배포 단계 9.*불일치/u);
     assert.match(results.find(item => item.attackId === 'deployment_identity').expected, /10단계/u);
-    assert.match(results.find(item => item.attackId === 'anonymous_note_restore').observed, /HTTP 401 JSON 오류/u);
+    assert.equal(results.find(item => item.attackId === 'anonymous_note_restore').observed, 'not_run');
     assert.equal(results.filter(item => item.observed.startsWith('미실행')).length, 11);
     for (const id of ['trial_policy_restore', 'private_b_note_restore', 'cross_owner_access',
       'device_registration_access', 'step_up_confirmation_access', 'resource_zone_access']) {
       assert.match(results.find(item => item.attackId === id).observed, /^미실행/u);
     }
-    const recovery = calls.find(item => item.target.pathname.startsWith('/api/note-recovery/'));
-    assert.equal(recovery.target.pathname, '/api/note-recovery/not-a-uuid');
-    assert.equal(recovery.options.method, 'POST');
-    assert.equal(recovery.options.body, '{}');
+    assert.ok(calls.every(item => !item.target.pathname.startsWith('/api/note-recovery/')));
     for (const { options } of calls) {
       assert.equal(options.headers?.Authorization, undefined);
       assert.equal(options.headers?.apikey, undefined);
       if (options.credentials) assert.equal(options.credentials, 'omit');
     }
-    for (const denial of [
-      () => new Response('<html>PRIVATE_TEST_CONTENT</html>', { status: 401 }),
-      () => Response.json({ error: 'LOGIN_REQUIRED', body: 'PRIVATE_TEST_CONTENT' }, { status: 403 }),
-      () => Response.json({ error: 'UNAVAILABLE' }, { status: 503 }),
-    ]) {
-      restoreResponse = denial;
-      const failed = await runAttackChecks(tenthConfig);
-      assert.match(failed.find(item => item.attackId === 'anonymous_note_restore').observed, /점검 실패/u);
-      assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_TEST_CONTENT/u);
-    }
-    restoreResponse = () => { throw new Error('PRIVATE_TEST_CONTENT'); };
-    const failed = await runAttackChecks(tenthConfig);
-    assert.equal(failed.find(item => item.attackId === 'anonymous_note_restore').observed, '비로그인 복구 점검 요청 실패');
-    assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_TEST_CONTENT/u);
   } finally { globalThis.fetch = originalFetch; }
 });
 test('eleventh stage records manifest and anonymous device HTTP separately from unrun physical approval',async()=>{
@@ -492,22 +478,22 @@ test('eleventh stage records manifest and anonymous device HTTP separately from 
       return Response.json({error:'LOGIN_REQUIRED'},{status:401});
     };
     const results=await runAttackChecks(eleventh);
-    assert.equal(calls.length,12);assert.equal(results.length,20);
+    assert.equal(calls.length,7);assert.equal(results.length,20);
     assert.equal(results.filter(item=>item.observed.startsWith('미실행')).length,8);
     assert.equal(new Set(results.map(item=>item.attackId)).size,20);
     assert.match(results.find(item=>item.attackId==='web_app_manifest').observed,/HTTP 200.*실제 설치 미실행/u);
-    assert.match(results.find(item=>item.attackId==='anonymous_device_registration').observed,/HTTP 401 JSON/u);
+    assert.equal(results.find(item=>item.attackId==='anonymous_device_registration').observed,'not_run');
     assert.match(results.find(item=>item.attackId==='deployment_identity').observed,/배포 단계 10.*불일치/u);
     assert.match(results.find(item=>item.attackId==='device_approval_flow').observed,/^미실행.*SQL 적용/u);
     assert.match(results.find(item=>item.attackId==='document_security_header').observed,/화면 표시 확인/u);
     for (const {target,options} of calls.filter(item=>item.target.pathname.startsWith('/api/device-'))) {
       assert.equal(options.credentials,'omit');
-      if (target.pathname==='/api/device-registration') {assert.equal(options.method,'POST');assert.equal(options.body,'{}');}
+      assert.equal(options.method,'GET');assert.equal(options.body,undefined);
     }
     good=false;
     const failed=await runAttackChecks(eleventh);
     assert.match(failed.find(item=>item.attackId==='web_app_manifest').observed,/점검 실패.*404/u);
-    for (const id of ['anonymous_device_status','anonymous_device_registration']) assert.match(failed.find(item=>item.attackId===id).observed,/점검 실패/u);
+    for (const id of ['anonymous_device_status']) assert.match(failed.find(item=>item.attackId===id).observed,/점검 실패/u);
     assert.doesNotMatch(JSON.stringify(failed),/PRIVATE_CONTENT/u);
     for (const item of results) assert.ok(item.expected.length<=300 && item.observed.length<=300);
   } finally {globalThis.fetch=saved;}
@@ -537,14 +523,14 @@ test('twelfth stage bundles real anonymous operations HTTP and keeps authenticat
       return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
     };
     const results = await runAttackChecks(twelfth);
-    assert.equal(calls.length, 13);
+    assert.equal(calls.length, 8);
     assert.equal(results.length, 20);
     assert.equal(new Set(results.map(item => item.attackId)).size, 20);
-    assert.equal(results.filter(item => item.observed.startsWith('미실행')).length, 7);
+    assert.equal(results.filter(item => item.observed === 'not_run').length, 12);
     assert.match(results.find(item => item.attackId === 'anonymous_operations_read').observed, /HTTP 401 JSON/u);
     assert.match(results.find(item => item.attackId === 'document_security_header').observed, /작전실 화면 표시 확인/u);
     for (const id of ['authenticated_ab_and_owner_access', 'operations_screen_and_device_access']) {
-      assert.match(results.find(item => item.attackId === id).observed, /^미실행/u);
+      assert.equal(results.find(item => item.attackId === id).observed, 'not_run');
     }
     const operationCall = calls.find(item => item.target.pathname === '/api/operations');
     assert.equal(operationCall.options.method, 'GET');
@@ -569,5 +555,38 @@ test('twelfth stage bundles real anonymous operations HTTP and keeps authenticat
     const failed = await runAttackChecks(twelfth);
     assert.equal(failed.find(item => item.attackId === 'anonymous_operations_read').observed, '비로그인 작전실 점검 요청 실패');
     assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_CONTENT/u);
+  } finally { globalThis.fetch = saved; }
+});
+test('submission self-check uses only public HTTPS reads at every supported stage and marks writes not_run', async () => {
+  const saved = globalThis.fetch;
+  try {
+    for (let step = 1; step <= 12; step++) {
+      const calls = [];
+      globalThis.fetch = async (url, options = {}) => {
+        const target = new URL(url);
+        const method = options.method ?? 'GET';
+        calls.push({ target, method, options });
+        if (!['GET', 'HEAD'].includes(method)) throw new Error('SANDBOX_WRITE_FORBIDDEN');
+        if (target.pathname === '/data.json') return new Response(null, { status: 404 });
+        if (target.pathname === '/aleph.json') return Response.json({ step, commit: 'a'.repeat(40), repoUrl: 'https://github.com/student-a/aleph-defense' });
+        if (target.pathname === '/') return new Response('', { headers: { 'X-Content-Type-Options': 'nosniff' } });
+        return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
+      };
+      const results = await runAttackChecks({ ...config, step, repoUrl: 'https://github.com/student-a/aleph-defense',
+        identityProvider: { issuer: 'https://training.supabase.co/auth/v1' },
+        originalApiUrl: 'https://training.supabase.co/rest/v1/vault_notes' });
+      assert.ok(calls.every(call => ['GET', 'HEAD'].includes(call.method)), `stage ${step} sent a write`);
+      assert.ok(calls.every(call => call.target.protocol === 'https:' && call.options.body === undefined));
+      for (const id of ['anonymous_note_post', 'anonymous_note_put', 'anonymous_note_delete', 'anonymous_note_restore', 'anonymous_device_registration']) {
+        const attempt = results.find(item => item.attackId === id);
+        if (attempt) assert.equal(attempt.observed, 'not_run', id);
+      }
+      if (step === 12) {
+        assert.equal(calls.length, 8);
+        assert.equal(results.length, 20);
+        assert.equal(results.filter(item => item.observed === 'not_run').length, 12);
+        assert.ok(results.every(item => !item.observed.startsWith('미실행')));
+      }
+    }
   } finally { globalThis.fetch = saved; }
 });
