@@ -87,7 +87,7 @@ test('server Auth uses official SDK and unchanged verifier without JSON credenti
       assert.equal(result.status, 200);
       assert.deepEqual(result.body, { user: { id: sub } });
       assert.equal(result.headers['cache-control'], 'no-store');
-      assert.equal(result.headers['set-cookie'].length, 2);
+      assert.equal(result.headers['set-cookie'].length, 3);
       for (const value of result.headers['set-cookie']) assert.ok(value.includes('Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age='));
       const output = JSON.stringify(result.body);
       assert.ok(!output.includes(access) && !output.includes(refresh) && !output.includes(secret) && !output.includes(password));
@@ -117,7 +117,7 @@ test('server Auth uses official SDK and unchanged verifier without JSON credenti
       const refreshed = await invoke('refresh', { headers: { cookie: expiredCookie } });
       assert.equal(refreshed.status, 200);
       assert.deepEqual(refreshed.body, { user: { id: sub } });
-      assert.equal(refreshed.headers['set-cookie'].length, 2);
+      assert.equal(refreshed.headers['set-cookie'].length, 3);
       mode = 'bad-refresh';
       const failed = await invoke('refresh', { headers: { cookie: expiredCookie } });
       assert.equal(failed.status, 401);

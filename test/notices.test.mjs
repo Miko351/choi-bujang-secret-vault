@@ -1,3 +1,4 @@
+import { approvedCookie, approvedDeviceResponse } from './approved-device-fixture.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { generateKeyPair, exportJWK, SignJWT } from 'jose';
@@ -8,7 +9,7 @@ async function invoke(authorization, options = {}) {
   const result = { headers: {} };
   await handler({ method: 'PUT', url: options.url ?? '/api/notices/00000000-0000-4000-8000-000000000001',
     body: { title: 'NOTICE_TEST', body: 'NOTICE_BODY' }, ...options,
-    headers: { 'content-type': 'application/json', authorization, ...options.headers } }, {
+    headers: { 'content-type': 'application/json', authorization, ...options.headers, cookie:[options.headers?.cookie,approvedCookie].filter(Boolean).join('; ') } }, {
     setHeader: (name, value) => { result.headers[name.toLowerCase()] = value; },
     status: code => { result.status = code; return { json: body => { result.body = body; } }; },
   });
@@ -40,6 +41,7 @@ test('notice API checks login, stored editor capability and existing/new owner i
     config.identityProvider = { issuer, audience: 'authenticated', jwksUrl: `${issuer}/.well-known/jwks.json` };
     globalThis.fetch = async (url, options) => {
       const target = new URL(url);
+      const deviceResponse = approvedDeviceResponse(target); if (deviceResponse) return deviceResponse;
       if (target.href === config.identityProvider.jwksUrl) {
         return new Response(JSON.stringify({ keys: [jwk] }), { headers: { 'content-type': 'application/json' } });
       }

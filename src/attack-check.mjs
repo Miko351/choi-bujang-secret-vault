@@ -1,8 +1,8 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
-  const ownerStage = [4, 5, 6, 7, 8, 9, 10].includes(config.step);
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  const ownerStage = [4, 5, 6, 7, 8, 9, 10, 11].includes(config.step);
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -98,7 +98,12 @@ export async function runAttackChecks(config) {
         });
         headerObserved = page.status === 200 && page.headers.get('x-content-type-options')?.toLowerCase() === 'nosniff'
           ? '첫 화면 HTTP 200, nosniff 헤더 확인' : `첫 화면 보안 헤더 점검 실패 (HTTP ${page.status})`;
-        await page.body?.cancel();
+        if (config.step === 11) {
+          const html = await page.text();
+          const shell = /rel="manifest"\s+href="\/manifest.webmanifest"/u.test(html)
+            && /id="device-register"/u.test(html) && /id="device-check"/u.test(html);
+          headerObserved += shell ? '; 설치·기기 승인 화면 표시 확인' : '; 설치·기기 승인 화면 표시 누락';
+        } else await page.body?.cancel();
       } catch { headerObserved = '첫 화면 보안 헤더 점검 요청 실패'; }
       results.push({ attackId: 'document_security_header', expected: '첫 화면 HTTP 200, X-Content-Type-Options: nosniff', observed: headerObserved });
       if (config.step >= 5) {
@@ -159,7 +164,7 @@ export async function runAttackChecks(config) {
               observed: '미실행: 회수 API·기기 권한 변경·실제 회수 시간 측정을 하지 않음. 탐지 제안을 회수 완료로 기록하지 않음' },
           );
         }
-        if (config.step === 10) {
+        if (config.step >= 10) {
           // Group only unrun checks; preserve every actual HTTP observation within v2's limit.
           const mergeUnrun = (firstId, secondId, attackId, expected, observed) => {
             const first = results.find(item => item.attackId === firstId);
@@ -202,6 +207,66 @@ export async function runAttackChecks(config) {
             { attackId: 'private_b_note_restore', expected: 'B 지정 한 건의 ID·소유자·내용 해시가 비공개 사본과 일치, 다른 메모·감사 보존; 잘못된 사본·대상 거부',
               observed: '미실행: 실제 B 사본·로그인 세션이 없어 DB 복구 요청을 보내지 않음. 모의 DB 시험을 실제 복구로 기록하지 않음' },
           );
+        }
+        if (config.step === 11) {
+          // Group only unrun items to keep all real requests within the v2 20-record limit.
+          const group = (ids, attackId, expected, observed) => {
+            const first = results.find(item => item.attackId === ids[0]);
+            Object.assign(first,{attackId,expected,observed});
+            for (const id of ids.slice(1)) results.splice(results.findIndex(item => item.attackId === id),1);
+          };
+          group(['device_registration_access','composite_risk_step_up','step_up_confirmation_access'],
+            'engine_device_and_step_up','엔진 등록 기기 정상 허용·미등록 거부, 복합 이상 추가 확인과 새 로그인 뒤 재판정',
+            '미실행: 실제 제공 엔진의 등록 기기·복합 사건·새 로그인 검증 요청을 보내지 않음. 앱 자체 WebAuthn과 별도');
+          group(['resource_zone_access','instructor_notice_update'],'resource_zone_and_notice_access',
+            '본인 한 건 허용, 타인·미등록 경로·기능 쿼리·판정기의 모든 공지 쓰기 거부; API도 권한 재확인',
+            '미실행: 실제 A/B·엔진 구역·공지 요청을 보내지 않음. 로컬 소유자·공지 시험은 별도 기록');
+          group(['trial_policy_restore','private_b_note_restore'],'policy_and_note_restore',
+            '검증한 시험 정책과 B 한 건만 복원, A 정상·B→A 거부 유지, ID·소유자·해시 일치와 다른 자료·감사 보존',
+            '미실행: 실제 사전 정책 사본·B 사본·세션이 없어 정책 적용·DB 복구 요청을 보내지 않음');
+          let manifestObserved;
+          try {
+            const result = await fetch(new URL('/manifest.webmanifest',app),{
+              credentials:'omit',redirect:'error',signal:AbortSignal.timeout(10000),
+            });
+            let valid = false;
+            if (result.ok) {
+              try {
+                const data = await result.json();
+                valid = data?.name === 'BYTE BACK 내 자료실' && data.short_name === '내 자료실'
+                  && data.start_url === '/' && data.scope === '/' && data.display === 'standalone'
+                  && Array.isArray(data.icons) && [192,512].every(size => data.icons.some(icon =>
+                    icon.src === `/icons/vault-${size}.png` && icon.sizes === `${size}x${size}` && icon.type === 'image/png'));
+              } catch { /* Never echo a manifest or error body. */ }
+            }
+            manifestObserved = valid ? 'manifest HTTP 200, 앱 이름·시작 주소·범위·192/512 PNG 아이콘 참조 확인; 실제 설치 미실행'
+              : `설치 manifest 점검 실패 (HTTP ${result.status})`;
+            if (!result.bodyUsed) await result.body?.cancel();
+          } catch { manifestObserved = '설치 manifest 점검 요청 실패'; }
+          results.push({attackId:'web_app_manifest',expected:'manifest에 앱 이름·같은 출처 시작 주소·standalone·192/512 아이콘 참조 포함',observed:manifestObserved});
+          for (const [attackId,path,method] of [
+            ['anonymous_device_status','/api/device-status','GET'],
+            ['anonymous_device_registration','/api/device-registration','POST'],
+          ]) {
+            let observed;
+            try {
+              const result = await fetch(new URL(path,app),{method,credentials:'omit',redirect:'error',signal:AbortSignal.timeout(10000),
+                ...(method === 'POST'?{headers:{'Content-Type':'application/json'},body:'{}'}:{})});
+              let denied=false;
+              if ([401,403].includes(result.status) && /^application\/json(?:\s*;|$)/iu.test(result.headers.get('content-type')??'')) {
+                try {const data=await result.json();denied=data && !Array.isArray(data)
+                  && Object.keys(data).join(',')==='error' && typeof data.error==='string' && data.error.length>0;}
+                catch { /* An HTML denial is a failed check. */ }
+              }
+              observed=denied?`비로그인 기기 ${method}가 HTTP ${result.status} JSON 오류로 거부됨`
+                :`비로그인 기기 요청 거부 점검 실패 (HTTP ${result.status})`;
+              if (!result.bodyUsed) await result.body?.cancel();
+            } catch {observed='비로그인 기기 점검 요청 실패';}
+            results.push({attackId,expected:'비로그인 기기 상태·등록 요청은 자료 없이 HTTP 401/403 JSON 오류',observed});
+          }
+          results.push({attackId:'device_approval_flow',
+            expected:'실기기 등록은 pending만 생성, 별도 서버 승인·WebAuthn 증명 뒤 자기 CRUD, 미승인·회수·다른 로그인은 자료 없이 거부',
+            observed:'미실행: 실제 SQL 적용·기기 등록/승인·WebAuthn·승인 뒤 A/B 요청 없음. 로컬 SDK·모의 DB 시험과 설치 표시를 승인 증거로 쓰지 않음'});
         }
         return results;
       }

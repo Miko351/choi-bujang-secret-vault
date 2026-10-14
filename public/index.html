@@ -4,6 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BYTE BACK | 내 자료실</title>
+  <meta name="theme-color" content="#101a28">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/vault-192.png">
+  <link rel="apple-touch-icon" href="/icons/vault-192.png">
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; }
     body { margin: 0; min-height: 100vh; background: #101a28; color: #ecf4ff; }
@@ -19,6 +23,8 @@
     .auth { border: 1px solid #51667c; border-radius: 14px; padding: 20px; background: #1a2a3d; }
     h2 { font-size: 21px; margin: 0 0 12px; }
     .auth p { margin: 8px 0 16px; }
+    .app-info { margin: 0 0 24px; }
+    .app-info p { font-size: 15px; }
     label { display: block; margin: 14px 0 6px; }
     input, textarea { box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid #7f94ab; border-radius: 8px; background: #101a28; color: #ecf4ff; font: inherit; }
     textarea { min-height: 140px; resize: vertical; }
@@ -40,6 +46,20 @@
     <h1>내 자료실</h1>
     <p>로그인해 실습용 가상 메모를 관리합니다.</p>
     <div class="notice">이 자료실의 메모는 모두 실습용 가상 자료입니다.</div>
+    <section class="auth app-info" aria-labelledby="app-heading">
+      <h2 id="app-heading">BYTE BACK 내 자료실 앱</h2>
+      <p id="app-install-status" role="status">지원하는 브라우저의 메뉴에서 앱 설치 또는 홈 화면에 추가를 선택할 수 있습니다.</p>
+      <button id="app-install" type="button" hidden>자료실 앱 설치</button>
+      <p><strong id="device-approval-status" role="status" aria-live="polite">기기 승인: 미확인</strong>서버가 현재 로그인과 이 기기의 검증 결과를 확인한 뒤 자료실을 엽니다. 앱 설치나 로그인 성공은 기기 승인을 뜻하지 않습니다.</p>
+      <div class="actions">
+        <button id="device-register" type="button" disabled>기기 승인 요청</button>
+        <button id="device-check" type="button" class="secondary" disabled>이 기기 확인 / 결과 조회</button>
+      </div>
+      <p id="device-request-id"></p>
+      <p>승인 요청만으로 자료가 열리지 않습니다. 서버 승인 후 이 기기를 확인해 주세요.</p>
+      <p>로그인과 메모 조회·추가·수정·삭제에는 인터넷 연결이 필요합니다. 앱은 메모·인증 응답을 오프라인 저장소에 별도로 보관하지 않습니다.</p>
+      <p id="app-network-status" role="status" aria-live="polite">오프라인이면 인터넷 연결 후 다시 시도해 주세요.</p>
+    </section>
     <section class="auth" aria-labelledby="auth-heading">
       <h2 id="auth-heading">계정 로그인</h2>
       <p id="auth-status" role="status" aria-live="polite">로그인 연결 확인 중</p>
@@ -67,8 +87,10 @@
       </form>
       <p id="note-status" role="status" aria-live="polite"></p>
     </section>
-    <ul id="notes" aria-live="polite"><li>로그인 후 자료를 볼 수 있습니다.</li></ul>
+    <ul id="notes" aria-live="polite"><li>로그인과 기기 승인 확인 전에는 보호 자료를 표시하지 않습니다.</li></ul>
   </main>
+  <script defer src="/vendor/webauthn.js"></script>
+  <script type="module" src="/app-ui.js"></script>
   <script type="module" src="/auth-ui.js"></script>
 </body>
 </html>

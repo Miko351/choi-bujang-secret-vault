@@ -38,6 +38,10 @@ if (config.step >= 5) {
   await copyFile(resolve(root, 'node_modules', '@supabase', 'supabase-js', 'dist', 'umd', 'supabase.js'),
     resolve(root, 'public', 'vendor', 'supabase.js'));
 }
+// The pinned browser SDK contains no project keys or sessions.
+await mkdir(resolve(root, 'public', 'vendor'), { recursive: true });
+await copyFile(resolve(root, 'node_modules', '@simplewebauthn', 'browser', 'dist', 'bundle', 'index.umd.min.js'),
+  resolve(root, 'public', 'vendor', 'webauthn.js'));
 if (!process.argv.includes('--local')) {
   const identity = deploymentIdentity(process.env, config);
   await writeFile(resolve(root, 'public', 'aleph.json'),

@@ -47,6 +47,10 @@ test('later builds remove static data, retain deployment metadata and reject sou
     for (const file of ['build-public.mjs', 'deployment-identity.mjs']) {
       await copyFile(new URL(`../scripts/${file}`, import.meta.url), join(directory, 'scripts', file));
     }
+    const webAuthnDirectory = join(directory, 'node_modules/@simplewebauthn/browser/dist/bundle');
+    await mkdir(webAuthnDirectory, {recursive:true});
+    await copyFile(new URL('../node_modules/@simplewebauthn/browser/dist/bundle/index.umd.min.js',import.meta.url),
+      join(webAuthnDirectory,'index.umd.min.js'));
     const sdkDirectory = join(directory, 'node_modules/@supabase/supabase-js/dist/umd');
     await mkdir(sdkDirectory, { recursive: true });
     await copyFile(new URL('../node_modules/@supabase/supabase-js/dist/umd/supabase.js', import.meta.url),
@@ -466,4 +470,45 @@ test('tenth stage checks anonymous recovery without writing and leaves real poli
     assert.equal(failed.find(item => item.attackId === 'anonymous_note_restore').observed, '비로그인 복구 점검 요청 실패');
     assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_TEST_CONTENT/u);
   } finally { globalThis.fetch = originalFetch; }
+});
+test('eleventh stage records manifest and anonymous device HTTP separately from unrun physical approval',async()=>{
+  const saved=globalThis.fetch;const calls=[];
+  const eleventh={...config,step:11,repoUrl:'https://github.com/student-a/aleph-defense',
+    identityProvider:{issuer:'https://training.supabase.co/auth/v1'},originalApiUrl:'https://training.supabase.co/rest/v1/vault_notes'};
+  let good=true;
+  try {
+    globalThis.fetch=async(url,options={})=>{
+      const target=new URL(url);calls.push({target,options});
+      assert.equal(target.origin,new URL(eleventh.publicAppUrl).origin);
+      assert.equal(options.headers?.Authorization,undefined);assert.equal(options.headers?.apikey,undefined);
+      if (target.pathname==='/data.json') return new Response(null,{status:404});
+      if (target.pathname==='/aleph.json') return Response.json({step:10,repoUrl:eleventh.repoUrl,commit:'a'.repeat(40)});
+      if (target.pathname==='/') return new Response('<link rel="manifest" href="/manifest.webmanifest"><button id="device-register"></button><button id="device-check"></button>',
+        {headers:{'X-Content-Type-Options':'nosniff'}});
+      if (target.pathname==='/manifest.webmanifest') return good?Response.json({name:'BYTE BACK 내 자료실',short_name:'내 자료실',
+        start_url:'/',scope:'/',display:'standalone',icons:[192,512].map(size=>({src:`/icons/vault-${size}.png`,sizes:`${size}x${size}`,type:'image/png'}))})
+        :new Response('<html>PRIVATE_CONTENT</html>',{status:404});
+      if (!good && target.pathname.startsWith('/api/device-')) return Response.json({error:'FAILED',content:'PRIVATE_CONTENT'},{status:403});
+      return Response.json({error:'LOGIN_REQUIRED'},{status:401});
+    };
+    const results=await runAttackChecks(eleventh);
+    assert.equal(calls.length,12);assert.equal(results.length,20);
+    assert.equal(results.filter(item=>item.observed.startsWith('미실행')).length,8);
+    assert.equal(new Set(results.map(item=>item.attackId)).size,20);
+    assert.match(results.find(item=>item.attackId==='web_app_manifest').observed,/HTTP 200.*실제 설치 미실행/u);
+    assert.match(results.find(item=>item.attackId==='anonymous_device_registration').observed,/HTTP 401 JSON/u);
+    assert.match(results.find(item=>item.attackId==='deployment_identity').observed,/배포 단계 10.*불일치/u);
+    assert.match(results.find(item=>item.attackId==='device_approval_flow').observed,/^미실행.*SQL 적용/u);
+    assert.match(results.find(item=>item.attackId==='document_security_header').observed,/화면 표시 확인/u);
+    for (const {target,options} of calls.filter(item=>item.target.pathname.startsWith('/api/device-'))) {
+      assert.equal(options.credentials,'omit');
+      if (target.pathname==='/api/device-registration') {assert.equal(options.method,'POST');assert.equal(options.body,'{}');}
+    }
+    good=false;
+    const failed=await runAttackChecks(eleventh);
+    assert.match(failed.find(item=>item.attackId==='web_app_manifest').observed,/점검 실패.*404/u);
+    for (const id of ['anonymous_device_status','anonymous_device_registration']) assert.match(failed.find(item=>item.attackId===id).observed,/점검 실패/u);
+    assert.doesNotMatch(JSON.stringify(failed),/PRIVATE_CONTENT/u);
+    for (const item of results) assert.ok(item.expected.length<=300 && item.observed.length<=300);
+  } finally {globalThis.fetch=saved;}
 });

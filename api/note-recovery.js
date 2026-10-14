@@ -1,3 +1,4 @@
+import { requireRegisteredDevice } from '../src/device-access.mjs';
 import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { readSessionCookies, sameOrigin } from '../src/session-cookies.mjs';
@@ -71,6 +72,7 @@ export default async function handler(request, response) {
   if (!backup) return response.status(503).json({ error: 'RESTORE_BACKUP_UNAVAILABLE' });
   if (backup.id !== id || backup.owner_id !== ownerId) return response.status(404).json({ error: 'NOT_FOUND' });
   if (input.contentSha256 !== backup.contentSha256) return response.status(409).json({ error: 'BACKUP_MISMATCH' });
+  if (!await requireRegisteredDevice({request, supabase:runtime.supabase, ownerId, authorization}, response)) return;
   try {
     // Only vault_notes and this exact ID are accessed; no audit/other-service table.
     const table = runtime.supabase.from('vault_notes');

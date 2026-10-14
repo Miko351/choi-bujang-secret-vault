@@ -5,10 +5,10 @@ import { mountAuthUI } from '../public/auth-ui.js';
 const account = { user: { id: 'TEST_A' }, access_token: 'SDK_SESSION_FIXTURE' };
 const fixtureEmail = ['a', 'example.com'].join('@');
 
-function fixture({ session = null, initialError = null } = {}) {
+function fixture({ session = null, initialError = null, deviceState = {status:'approved',deviceRegistered:true} } = {}) {
   const nodes = Object.fromEntries(['login-form', 'login-email', 'login-password', 'login-button',
     'logout-button', 'auth-status', 'auth-error', 'notes', 'note-editor', 'note-form',
-    'note-heading', 'note-title', 'note-body', 'note-save', 'note-cancel', 'note-status'].map(id => [id, {
+    'note-heading', 'note-title', 'note-body', 'note-save', 'note-cancel', 'note-status', 'device-approval-status', 'device-request-id', 'device-register', 'device-check'].map(id => [id, {
     value: '', textContent: '', hidden: false, disabled: false, listeners: {}, attributes: {},
     addEventListener(event, listener) { this.listeners[event] = listener; },
     setAttribute(name, value) { this.attributes[name] = value; },
@@ -33,6 +33,7 @@ function fixture({ session = null, initialError = null } = {}) {
       ({ id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`, title: `TEST ${i}`, body: `BODY ${i}` })) };
   };
   let change;
+  let deviceStatusCall = async () => deviceState;
   const sdk = {
     auth: {
       onAuthStateChange(callback) { change = callback; },
@@ -51,9 +52,11 @@ function fixture({ session = null, initialError = null } = {}) {
   };
   return {
     nodes, calls, sdk, noteCalls,
+    setDeviceState: state => { deviceState = state; },
+    setDeviceStatus: callback => { deviceStatusCall = callback; },
     setNoteFetch: callback => { noteFetch = callback; },
     change: (...args) => change(...args),
-    mount: async () => mountAuthUI({ document,
+    mount: async () => mountAuthUI({ document, deviceClient: { status:()=>deviceStatusCall(), requestRegistration:async()=>({status:'pending',deviceRegistered:false}), confirmDevice:async()=>deviceState },
       fetch: (...args) => noteFetch(...args),
       createClient: options => {
         calls.push({ method: 'createClient', options });
@@ -281,4 +284,50 @@ test('failed writes retain the draft; logout ignores a late successful write res
   assert.equal(f.nodes['note-title'].value, '');
   assert.equal(f.nodes['note-status'].textContent, '');
   assert.match(f.nodes.notes.children[0].textContent, /로그인 후/u);
+});
+
+test('pending approval never fetches or renders notes; a button only requests pending, server-approved status opens existing UI', async () => {
+  const f=fixture({session:account,deviceState:{status:'pending',deviceRegistered:false}});
+  await f.mount();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.noteCalls.length,0);assert.equal(f.nodes['note-editor'].hidden,true);
+  assert.match(f.nodes['device-approval-status'].textContent,/대기 중/u);
+  await f.saveNote();assert.equal(f.noteCalls.length,0);
+  f.nodes['device-register'].listeners.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.noteCalls.length,0);assert.equal(f.nodes['note-editor'].hidden,true);
+  f.setDeviceState({status:'approved',deviceRegistered:true});
+  f.nodes['device-check'].listeners.click();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.noteCalls.length,1);assert.equal(f.nodes['note-editor'].hidden,false);
+  assert.equal(f.nodes.notes.children.length,4);assert.match(f.nodes['device-approval-status'].textContent,/서버 확인 완료/u);
+});
+
+test('unregistered, rejected, revoked, inconsistent and unavailable approval states keep all protected controls closed', async () => {
+  for (const deviceState of [
+    {status:'not_registered',deviceRegistered:false},{status:'rejected',deviceRegistered:false},
+    {status:'revoked',deviceRegistered:false},{status:'approved',deviceRegistered:false},
+    {status:'pending',deviceRegistered:true},{status:'approved',deviceRegistered:'true'},null,
+  ]) {
+    const f=fixture({session:account,deviceState});await f.mount();await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(f.noteCalls.length,0);assert.equal(f.nodes['note-editor'].hidden,true);
+    assert.equal(f.nodes['note-save'].disabled,true);
+  }
+  const f=fixture({session:account});f.setDeviceStatus(async()=>{throw new Error('PRIVATE_DEVICE_DETAILS');});
+  await f.mount();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.noteCalls.length,0);assert.match(f.nodes['device-approval-status'].textContent,/확인 실패/u);
+  assert.doesNotMatch(f.nodes['device-approval-status'].textContent,/PRIVATE_DEVICE_DETAILS/u);
+});
+
+test('late approval after logout cannot reveal notes and a server device denial clears earlier notes and drafts', async () => {
+  const late=fixture({session:account});let finish;
+  late.setDeviceStatus(()=>new Promise(resolve=>{finish=resolve;}));
+  await late.mount();await late.logout();
+  finish({status:'approved',deviceRegistered:true});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(late.noteCalls.length,0);assert.equal(late.nodes['note-editor'].hidden,true);
+  const f=fixture({session:account});await f.mount();await new Promise(resolve=>setImmediate(resolve));
+  f.nodes['note-title'].value='PRIVATE_DRAFT';f.nodes['note-body'].value='PRIVATE_DRAFT';
+  f.setNoteFetch(async()=>({ok:false,status:403,json:async()=>({error:'DEVICE_NOT_REGISTERED'})}));
+  await f.saveNote();
+  assert.equal(f.nodes['note-editor'].hidden,true);assert.equal(f.nodes['note-title'].value,'');
+  assert.equal(f.nodes.notes.children.length,1);assert.match(f.nodes.notes.children[0].textContent,/승인 확인 전/u);
+  assert.match(f.nodes['device-approval-status'].textContent,/다시 확인/u);
 });

@@ -1,3 +1,4 @@
+import { approvedCookie, approvedDeviceResponse } from './approved-device-fixture.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -12,7 +13,7 @@ const notes = Array.from({ length: 4 }, (_, i) => ({
 
 async function invoke({ method = 'GET', authorization, url = '/api/notes', headers = {}, ...untrusted } = {}) {
   const result = { headers: {} };
-  await handler({ method, url, headers: { 'content-type': 'application/json', authorization, ...headers }, ...untrusted }, {
+  await handler({ method, url, headers: { 'content-type': 'application/json', authorization, ...headers, cookie:[headers.cookie,approvedCookie].filter(Boolean).join('; ') }, ...untrusted }, {
     setHeader: (name, value) => { result.headers[name.toLowerCase()] = value; },
     status: code => {
       result.status = code;
@@ -71,6 +72,7 @@ test('notes API uses the unchanged starter verifier before every note query', as
     } });
     globalThis.fetch = async (url, options) => {
       const target = new URL(url);
+      const deviceResponse = approvedDeviceResponse(target); if (deviceResponse) return deviceResponse;
       if (target.href === config.identityProvider.jwksUrl ||
         target.href === `${config.judgeIssuer}/.well-known/jwks.json`) {
         return new Response(JSON.stringify({ keys: [jwk] }), { headers: { 'content-type': 'application/json' } });
@@ -529,6 +531,6 @@ test('notes API uses the unchanged starter verifier before every note query', as
 test('static screen has no anonymous notes fetch or server secret', async () => {
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   assert.doesNotMatch(html, /SUPABASE_SECRET_KEY|data\.json|fetch\(|<script type="module">/u);
-  assert.match(html, /로그인 후 자료를 볼 수 있습니다/u);
+  assert.match(html, /로그인과 기기 승인 확인 전에는 보호 자료를 표시하지 않습니다/u);
   assert.match(html, /src="\/auth-ui\.js"/u);
 });

@@ -1,3 +1,4 @@
+import { requireRegisteredDevice } from '../src/device-access.mjs';
 import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { readSessionCookies, sameOrigin } from '../src/session-cookies.mjs';
@@ -81,6 +82,7 @@ export default async function handler(request, response) {
       return response.status(400).json({ error: 'INVALID_NOTICE' });
     }
   } catch { return response.status(400).json({ error: 'INVALID_NOTICE' }); }
+  if (!await requireRegisteredDevice({request, supabase:current.supabase, ownerId:userId, authorization}, response)) return;
   try {
     // Both the stored owner and the new owner must be the verified user.
     // No table creation, data migration or changes to vault_notes occur here.

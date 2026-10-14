@@ -1,3 +1,4 @@
+import { DEVICE_COOKIE } from './device-access.mjs';
 // Cookie transport only. Token verification stays in verify-login.mjs.
 export const ACCESS_COOKIE = '__Host-vault-access';
 export const REFRESH_COOKIE = '__Host-vault-refresh';
@@ -24,11 +25,12 @@ export function setSessionCookies(response, session) {
   response.setHeader('Set-Cookie', [
     `${ACCESS_COOKIE}=${session.access_token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${MAX_AGE}`,
     `${REFRESH_COOKIE}=${session.refresh_token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${MAX_AGE}`,
+    `${DEVICE_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
   ]);
 }
 
 export function clearSessionCookies(response) {
-  response.setHeader('Set-Cookie', [ACCESS_COOKIE, REFRESH_COOKIE].map(name =>
+  response.setHeader('Set-Cookie', [ACCESS_COOKIE, REFRESH_COOKIE, DEVICE_COOKIE].map(name =>
     `${name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`));
 }
 

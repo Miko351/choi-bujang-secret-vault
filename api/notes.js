@@ -1,3 +1,4 @@
+import { requireRegisteredDevice } from '../src/device-access.mjs';
 import { createClient } from '@supabase/supabase-js';
 import { createHash, randomUUID } from 'node:crypto';
 import { createLoginVerifier } from '../src/verify-login.mjs';
@@ -133,6 +134,7 @@ export default async function handler(request, response) {
     }
   }
 
+  if (!await requireRegisteredDevice({request, supabase:current.supabase, ownerId, authorization}, response)) return;
   try {
     const table = current.supabase.from('vault_notes');
     let operation;

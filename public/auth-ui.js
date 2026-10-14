@@ -1,3 +1,4 @@
+import { createDeviceClient } from './device-client.js';
 import { createServerAuthClient } from './auth-client.js';
 
 function failureReason(error) {
@@ -22,7 +23,7 @@ function failureReason(error) {
   return '인증 요청을 처리하지 못했습니다. 프로젝트 설정을 확인한 뒤 다시 시도해 주세요.';
 }
 
-export async function mountAuthUI({ document, createClient = createServerAuthClient, fetch: fetchNotes = globalThis.fetch }) {
+export async function mountAuthUI({ document, createClient = createServerAuthClient, fetch: fetchNotes = globalThis.fetch, deviceClient }) {
   const form = document.querySelector('#login-form');
   const email = document.querySelector('#login-email');
   const password = document.querySelector('#login-password');
@@ -39,6 +40,14 @@ export async function mountAuthUI({ document, createClient = createServerAuthCli
   const noteSave = document.querySelector('#note-save');
   const noteCancel = document.querySelector('#note-cancel');
   const noteStatus = document.querySelector('#note-status');
+  const deviceStatus = document.querySelector('#device-approval-status');
+  const deviceRequestId = document.querySelector('#device-request-id');
+  const registerDevice = document.querySelector('#device-register');
+  const checkDeviceButton = document.querySelector('#device-check');
+  let deviceRegistered = false;
+  let deviceBusy = false;
+  let deviceUser = null;
+  let deviceRevision = 0;
   let signedIn = false;
   let busy = true;
   let noteRevision = 0;
@@ -55,7 +64,7 @@ export async function mountAuthUI({ document, createClient = createServerAuthCli
 
   const syncNoteControls = () => {
     for (const control of [noteTitle, noteBody, noteSave, noteCancel, ...cardButtons]) {
-      control.disabled = mutationBusy || busy || !noteUser;
+      control.disabled = mutationBusy || busy || !noteUser || !deviceRegistered;
     }
     noteForm.setAttribute('aria-busy', String(mutationBusy));
   };
@@ -95,6 +104,7 @@ export async function mountAuthUI({ document, createClient = createServerAuthCli
           signal: controller.signal,
         });
         if (revision !== noteRevision) return;
+        if (response.status === 403) { lockDevice('기기 승인 확인이 필요합니다. 이 기기를 다시 확인해 주세요.'); return; }
         if (response.status === 401) {
           noteMessage('로그인 확인에 실패했습니다. 다시 로그인해 주세요.');
           return;
@@ -161,7 +171,7 @@ export async function mountAuthUI({ document, createClient = createServerAuthCli
   };
 
   const noteOperation = async (method, id, input) => {
-    if (!signedIn || !noteUser || mutationBusy || busy) return null;
+    if (!signedIn || !deviceRegistered || !noteUser || mutationBusy || busy) return null;
     const revision = sessionRevision;
     const controller = new AbortController();
     mutationRequest = controller;
@@ -175,6 +185,7 @@ export async function mountAuthUI({ document, createClient = createServerAuthCli
         ...(input ? { body: JSON.stringify(input) } : {}),
       });
       if (revision !== sessionRevision) return null;
+      if (response.status === 403) { lockDevice('기기 승인 확인이 필요합니다. 이 기기를 다시 확인해 주세요.'); return null; }
       if (!response.ok) {
         const reasons = {
           400: '제목·내용·메모 ID 형식을 확인해 주세요.',
@@ -228,6 +239,71 @@ export async function mountAuthUI({ document, createClient = createServerAuthCli
     errorBox.textContent = message;
     errorBox.hidden = !message;
   };
+  const syncDeviceControls = () => {
+    registerDevice.disabled = !signedIn || busy || deviceBusy || deviceRegistered;
+    checkDeviceButton.disabled = !signedIn || busy || deviceBusy;
+  };
+  const lockDevice = message => {
+    deviceRegistered = false;
+    sessionRevision++;
+    mutationRequest?.abort();
+    mutationRequest = null;
+    mutationBusy = false;
+    resetEditor();
+    noteStatus.textContent = '';
+    refreshNotes(null);
+    noteMessage('로그인 후 기기 승인 확인 전에는 보호 자료를 표시하지 않습니다.');
+    editor.hidden = true;
+    deviceStatus.textContent = message;
+    deviceRequestId.textContent = '';
+    syncNoteControls();
+    syncDeviceControls();
+  };
+  const deviceMessages = {
+    not_registered: '기기 승인: 미등록. 이 기기에서 승인 요청을 시작해 주세요.',
+    verification_required: '기기 승인: 재확인 필요. 이 기기 확인 버튼을 눌러 주세요.',
+    pending: '기기 승인: 대기 중. 요청이 접수됐으며 아직 자료를 열 수 없습니다.',
+    approved: '기기 승인: 서버 확인 완료.',
+    rejected: '기기 승인: 거절됨. 보호 자료를 열 수 없습니다.',
+    revoked: '기기 승인: 회수됨. 보호 자료를 열 수 없습니다.',
+  };
+  const refreshDevice = async (session, action = 'status', force = false) => {
+    const user = session?.user?.id ?? null;
+    if (!force && user && user === deviceUser) return;
+    deviceUser = user;
+    const revision = ++deviceRevision;
+    lockDevice(user ? '기기 승인 상태를 서버에서 확인 중입니다.' : '기기 승인: 미확인. 먼저 로그인해 주세요.');
+    if (!user) { deviceBusy = false; syncDeviceControls(); return; }
+    deviceBusy = true;
+    syncDeviceControls();
+    try {
+      let state = action === 'register' ? await deviceClient.requestRegistration() : await deviceClient.status();
+      if (action === 'confirm' && ['not_registered','verification_required'].includes(state?.status)) state = await deviceClient.confirmDevice();
+      if (revision !== deviceRevision || currentSession?.user?.id !== user) return;
+      if (!state || !Object.hasOwn(deviceMessages,state.status) || typeof state.deviceRegistered !== 'boolean'
+          || state.deviceRegistered !== (state.status === 'approved')) throw new Error('INVALID_DEVICE_STATE');
+      deviceRegistered = state.deviceRegistered;
+      deviceStatus.textContent = deviceMessages[state.status];
+      if (UUID.test(state.requestId ?? '')) deviceRequestId.textContent = `승인 요청 번호: ${state.requestId}`;
+      if (deviceRegistered) {
+        refreshNotes(session, true);
+        editor.hidden = false;
+        syncNoteControls();
+      }
+    } catch {
+      if (revision === deviceRevision) lockDevice('기기 승인: 확인 실패. 서버 설정·연결·인증 장치 지원을 확인한 뒤 다시 시도해 주세요.');
+    } finally {
+      if (revision === deviceRevision) { deviceBusy = false; syncDeviceControls(); }
+    }
+  };
+  registerDevice.addEventListener('click', () => {
+    if (!signedIn || busy || deviceBusy || deviceRegistered) return;
+    void refreshDevice(currentSession,'register',true);
+  });
+  checkDeviceButton.addEventListener('click', () => {
+    if (!signedIn || busy || deviceBusy) return;
+    void refreshDevice(currentSession,'confirm',true);
+  });
   const render = session => {
     currentSession = session;
     const nextUser = session?.user?.id ?? null;
@@ -247,17 +323,20 @@ export async function mountAuthUI({ document, createClient = createServerAuthCli
     form.setAttribute('aria-busy', String(busy));
     for (const control of [email, password, login, logout]) control.disabled = busy;
     if (signedIn) password.value = '';
-    refreshNotes(session);
-    editor.hidden = !signedIn;
+    void refreshDevice(session);
+    editor.hidden = !signedIn || !deviceRegistered;
     syncNoteControls();
+    syncDeviceControls();
   };
   const idle = () => {
     busy = false;
     form.setAttribute('aria-busy', 'false');
     for (const control of [email, password, login, logout]) control.disabled = false;
     syncNoteControls();
+    syncDeviceControls();
   };
 
+  deviceClient ??= createDeviceClient({ fetch: (...args) => fetchNotes(...args) });
   render(null);
   if (typeof createClient !== 'function') {
     showError('로그인 SDK를 불러오지 못했습니다. 페이지를 새로 고침해 주세요.');
@@ -318,7 +397,7 @@ export async function mountAuthUI({ document, createClient = createServerAuthCli
     stateChanges++;
     if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') showError('');
     render(session);
-    if (event === 'TOKEN_REFRESHED' && session?.user) refreshNotes(session, true);
+    if (event === 'TOKEN_REFRESHED' && session?.user) void refreshDevice(session,'status',true);
   });
   const initialRevision = stateChanges;
   try {

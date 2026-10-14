@@ -1,3 +1,4 @@
+import { approvedCookie, approvedDeviceResponse } from './approved-device-fixture.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHash, randomUUID } from 'node:crypto';
@@ -11,7 +12,7 @@ const digest = value => createHash('sha256').update(JSON.stringify(value)).diges
 async function invoke({ authorization, method = 'POST', url, body, headers = {}, query } = {}) {
   const result = { headers: {} };
   await handler({ authorization, method, url, body, query,
-    headers: { authorization, 'content-type': 'application/json', ...headers } }, {
+    headers: { authorization, 'content-type': 'application/json', ...headers, cookie:[headers.cookie,approvedCookie].filter(Boolean).join('; ') } }, {
     setHeader(name, value) { result.headers[name.toLowerCase()] = value; },
     status(code) { result.status = code; return { json(value) { result.body = value; }, end() {} }; },
   });
@@ -62,6 +63,7 @@ test('B-only single-note recovery verifies the private copy and preserves other 
     Object.assign(config, { identityProvider: { issuer, audience: 'authenticated', jwksUrl: `${issuer}/.well-known/jwks.json` } });
     globalThis.fetch = async (url, options = {}) => {
       const target = new URL(url);
+      const deviceResponse = approvedDeviceResponse(target); if (deviceResponse) return deviceResponse;
       if (target.href === config.identityProvider.jwksUrl) return Response.json({ keys: [jwk] });
       assert.equal(target.origin, project);
       assert.equal(target.pathname, '/rest/v1/vault_notes');

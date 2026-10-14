@@ -1,3 +1,4 @@
+import { retireDeviceSession } from './device-access.mjs';
 import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from './verify-login.mjs';
 import { readSessionCookies, setSessionCookies, clearSessionCookies, sameOrigin } from './session-cookies.mjs';
@@ -74,6 +75,7 @@ export default async function handler(request, response) {
           if (error) return response.status(503).json({ error: 'AUTH_UNAVAILABLE' });
         }
       }
+      await retireDeviceSession(request,client,cookies.access ? `Bearer ${cookies.access}` : null);
       clearSessionCookies(response);
       return response.status(200).json({ user: null });
     }
@@ -93,6 +95,7 @@ export default async function handler(request, response) {
     const session = result.data?.session;
     const identity = session?.access_token && await verify(`Bearer ${session.access_token}`);
     if (identity?.kind !== 'student') return response.status(401).json({ error: 'LOGIN_REQUIRED' });
+    await retireDeviceSession(request,client,cookies.access ? `Bearer ${cookies.access}` : null);
     setSessionCookies(response, session);
     return response.status(200).json({ user: { id: identity.userId } });
   } catch {
