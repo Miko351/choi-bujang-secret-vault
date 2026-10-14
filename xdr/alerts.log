@@ -25,3 +25,19 @@
 {"moduleKey":"web-injection","at":"2026-10-14T07:19:41.000Z","evidenceAlertId":"wi-07","action":"block","confidence":0.9,"pattern":"반복된 상위 경로 이동 표식","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
 {"moduleKey":"web-injection","at":"2026-10-14T07:19:41.000Z","evidenceAlertId":"wi-08","action":"block","confidence":0.9,"pattern":"요청 인자의 SQL 구문 삽입","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
 {"moduleKey":"web-injection","at":"2026-10-14T07:19:41.001Z","evidenceAlertId":"wi-09","action":"alert","confidence":0.5,"pattern":"요청 인자의 SQL 구문 삽입","status":"alerted"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.089Z","evidenceAlertId":"kc-01","action":"block","confidence":0.9,"pattern":"요청 머리글의 JNDI 원격 조회 구문","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.093Z","evidenceAlertId":"kc-02","action":"block","confidence":0.9,"pattern":"요청 인자의 JNDI 원격 조회 구문","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.094Z","evidenceAlertId":"kc-03","action":"block","confidence":0.9,"pattern":"요청 인자의 JNDI 원격 조회 구문","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.095Z","evidenceAlertId":"kc-04","action":"block","confidence":0.9,"pattern":"요청 머리글의 JNDI 원격 조회 구문","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.096Z","evidenceAlertId":"kc-05","action":"block","confidence":0.95,"pattern":"취약점 점검 도구 흔적과 악용 구문의 결합","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.096Z","evidenceAlertId":"kc-06","action":"block","confidence":0.9,"pattern":"요청 인자의 JNDI 원격 조회 구문","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.097Z","evidenceAlertId":"kc-07","action":"block","confidence":0.9,"pattern":"요청 머리글의 JNDI 원격 조회 구문","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.097Z","evidenceAlertId":"kc-08","action":"block","confidence":0.95,"pattern":"요청 머리글의 JNDI 원격 조회 구문","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.098Z","evidenceAlertId":"kc-09","action":"alert","confidence":0.5,"pattern":"요청 인자의 JNDI 원격 조회 구문","status":"alerted"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.099Z","evidenceAlertId":"kc-10","action":"alert","confidence":0.5,"pattern":"요청 인자의 JNDI 원격 조회 구문","status":"alerted"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.100Z","evidenceAlertId":"kc-11","action":"alert","confidence":0.5,"pattern":"요청 인자의 JNDI 원격 조회 구문","status":"alerted"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.100Z","evidenceAlertId":"kc-12","action":"alert","confidence":0.5,"pattern":"요청 머리글의 JNDI 원격 조회 구문","status":"alerted"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.101Z","evidenceAlertId":"kc-13","action":"alert","confidence":0.5,"pattern":"취약점 점검 도구 흔적과 악용 구문의 결합","status":"alerted"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.101Z","evidenceAlertId":"kc-14","action":"alert","confidence":0.5,"pattern":"요청 인자의 JNDI 원격 조회 구문","status":"alerted"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.102Z","evidenceAlertId":"kc-15","action":"alert","confidence":0.5,"pattern":"요청 인자의 JNDI 원격 조회 구문","status":"alerted"}
+{"moduleKey":"known-cve","at":"2026-10-14T07:44:51.102Z","evidenceAlertId":"kc-16","action":"alert","confidence":0.5,"pattern":"요청 인자의 JNDI 원격 조회 구문","status":"alerted"}
