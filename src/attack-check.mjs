@@ -1,8 +1,8 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
-  const ownerStage = [4, 5, 6, 7, 8].includes(config.step);
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  const ownerStage = [4, 5, 6, 7, 8, 9].includes(config.step);
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -132,12 +132,31 @@ export async function runAttackChecks(config) {
               observed: '미실행: 실제 재로그인 확인·새 요청을 보내지 않음. stepUp 플래그를 실제 로그인 증거로 기록하지 않음' },
           );
         }
-        if (config.step === 8) {
+        if (config.step >= 8) {
           results.push(
             { attackId: 'resource_zone_access', expected: '본인 메모 읽기·수정 허용, 타인 메모·미등록 경로·기능 쿼리 거부; API에서 소유자 재확인',
               observed: '미실행: 실제 A/B 직접 API·엔진 구역 요청을 보내지 않음. 소유권 연결 계약은 없으며 서버 관리 정책은 실제 미설정. 정책이 없으면 UUID 메모 읽기·수정 거부' },
-            { attackId: 'instructor_notice_update', expected: '서버가 확인한 강사만 공지 수정, 일반 학생의 직접 API 수정은 거부',
+            { attackId: 'instructor_notice_update', expected: '판정기는 모든 공지 쓰기 거부; API는 별도 서버 승인 권한·DB 소유자를 확인하며 일반 학생 수정 거부',
               observed: '미실행: 공지 API의 서버 승인 권한·DB 소유자 검사 구현. 실제 서버 정책·공지 테이블은 미설정이며 실제 공지 수정 성공은 미확인. 본문 role로 권한을 만들지 않음' },
+          );
+        }
+        if (config.step === 9) {
+          // Keep the v2 limit of 20 records without representing virtual tests as HTTP evidence.
+          const devices = results.find(item => item.attackId === 'registered_device_note_read');
+          devices.attackId = 'device_registration_access';
+          devices.expected = '엔진이 확인한 등록 기기는 읽기 허용, 미등록은 deny와 device_not_registered로 거부';
+          devices.observed = '미실행: 실제 등록·미등록 기기와 운영 릴레이 요청을 보내지 않음. 로컬 연습을 실제 공격 결과로 기록하지 않음';
+          results.splice(results.findIndex(item => item.attackId === 'unregistered_device_note_read'), 1);
+          const confirmation = results.find(item => item.attackId === 'step_up_pending_note_read');
+          confirmation.attackId = 'step_up_confirmation_access';
+          confirmation.expected = '새 로그인 확인 전 자료 차단, 같은 주체의 새 로그인 시각 검증 뒤 새 요청 재판정·허용';
+          confirmation.observed = '미실행: 새 로그인 시각 확인 호출 계약·운영 릴레이 연결과 실제 재로그인 요청이 확인되지 않음';
+          results.splice(results.findIndex(item => item.attackId === 'step_up_reauthenticated_note_read'), 1);
+          results.push(
+            { attackId: 'composite_detection_proposal', expected: '확인된 가상 기기 한 개의 낯선 네트워크·10분 내 GET 120건 초과만 propose_revocation, deviceId·burst_read 포함; 정상은 observe',
+              observed: '미실행: 운영 엔진 사건 전달을 확인하지 않음. 확장된 signals·기기 필드는 로컬 시험용이며 심판 계약으로 확인되지 않음' },
+            { attackId: 'device_revocation_execution', expected: '심판이 제안 대상 한 기기의 실제 회수와 시간을 확인; 다른 기기와 정상 사용자 유지',
+              observed: '미실행: 회수 API·기기 권한 변경·실제 회수 시간 측정을 하지 않음. 탐지 제안을 회수 완료로 기록하지 않음' },
           );
         }
         return results;

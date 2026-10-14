@@ -36,7 +36,7 @@ test('build identity uses Vercel Git and deployment metadata', () => {
 });
 
 test('later stage identity records the configured stage and validates its range', () => {
-  for (const step of [2, 3, 4, 5, 6, 7, 8, 12]) assert.equal(deploymentIdentity(env, { ...config, step }).step, step);
+  for (const step of [2, 3, 4, 5, 6, 7, 8, 9, 12]) assert.equal(deploymentIdentity(env, { ...config, step }).step, step);
   for (const step of [0, 13, 2.5, '2']) assert.throws(() => deploymentIdentity(env, { ...config, step }));
 });
 
@@ -60,7 +60,7 @@ test('later builds remove static data, retain deployment metadata and reject sou
     });
     const output = join(directory, 'public/data.json');
     await mkdir(join(directory, 'public'));
-    for (const step of [2, 3, 4, 5, 6, 7, 8, 12]) {
+    for (const step of [2, 3, 4, 5, 6, 7, 8, 9, 12]) {
       await writeFile(join(directory, 'aleph.config.json'), JSON.stringify({ ...config, step }));
       await writeFile(output, JSON.stringify({ notes: [{ content: 'STALE_TEST_CONTENT' }] }));
       assert.equal(build().status, 0);
@@ -331,6 +331,48 @@ test('seventh stage leaves engine step up and fresh login checks unrun while rep
       assert.equal(options.headers?.apikey, undefined);
       if (['POST', 'PUT'].includes(options.method)) assert.equal(options.body, '{}');
     }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('ninth stage retains eight HTTP requests and leaves detection and revocation unrun', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const ninthConfig = { ...config, step: 9,
+    repoUrl: 'https://github.com/student-a/aleph-defense',
+    identityProvider: { issuer: 'https://training.supabase.co/auth/v1' },
+    originalApiUrl: 'https://training.supabase.co/rest/v1/vault_notes' };
+  try {
+    globalThis.fetch = async (url, options) => {
+      const target = new URL(url);
+      calls.push({ target, options });
+      assert.equal(target.origin, new URL(ninthConfig.publicAppUrl).origin);
+      if (target.pathname === '/data.json') return new Response(null, { status: 404 });
+      if (target.pathname === '/aleph.json') return Response.json({ step: 8,
+        repoUrl: ninthConfig.repoUrl, commit: 'f'.repeat(40) });
+      if (target.pathname === '/') return new Response(null, { headers: { 'X-Content-Type-Options': 'nosniff' } });
+      return Response.json({ error: 'LOGIN_REQUIRED' }, { status: 401 });
+    };
+    const results = await runAttackChecks(ninthConfig);
+    assert.equal(calls.length, 8);
+    assert.equal(results.length, 20);
+    assert.equal(new Set(results.map(item => item.attackId)).size, results.length);
+    assert.match(results[6].observed, /배포 단계 8.*불일치/u);
+    for (const item of results.slice(8)) assert.match(item.observed, /^미실행/u);
+    assert.match(results.find(item => item.attackId === 'composite_detection_proposal').expected,
+      /propose_revocation.*deviceId.*burst_read/u);
+    assert.match(results.find(item => item.attackId === 'composite_detection_proposal').observed,
+      /로컬 시험용.*심판 계약으로 확인되지 않음/u);
+    assert.match(results.find(item => item.attackId === 'device_revocation_execution').observed,
+      /미실행.*실제 회수 시간/u);
+    for (const item of results) {
+      assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
+    }
+    for (const { options } of calls) {
+      assert.equal(options.headers?.Authorization, undefined);
+      assert.equal(options.headers?.apikey, undefined);
+      if (['POST', 'PUT'].includes(options.method)) assert.equal(options.body, '{}');
+    }
+    assert.ok(calls.every(({ target }) => !target.pathname.includes('revoke')));
   } finally { globalThis.fetch = originalFetch; }
 });
 
