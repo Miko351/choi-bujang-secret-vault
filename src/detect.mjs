@@ -41,12 +41,20 @@ export function readDetectionEvents(events) {
 // A local suspicion proposal only; no live engine connection or revocation.
 export function detect(events) {
   const readsByDevice = new Map();
-  for (const event of readDetectionEvents(events)) {
-    if (event.method !== 'GET' || event.signals?.network !== 'unusual'
-        || event.deviceRegistered !== true) continue;
+  const selected = readDetectionEvents(events);
+  for (let index = 0; index < selected.length; index++) {
+    const event = selected[index];
+    const raw = events[index];
+    // Honor the original supplied three-field practice contract. Do not turn an
+    // incomplete extended event into this format by dropping its other fields.
+    const starterEvent = Object.keys(raw).length === 3
+      && ['at', 'method', 'identity'].every(name => Object.hasOwn(raw, name))
+      && Object.keys(raw.identity).length === 1 && Object.hasOwn(raw.identity, 'sub');
+    if (event.method !== 'GET' || (!starterEvent
+        && (event.signals?.network !== 'unusual' || event.deviceRegistered !== true))) continue;
     const subject = event.identity.sub;
-    const deviceId = event.deviceId;
-    const key = JSON.stringify([subject, deviceId]);
+    const deviceId = starterEvent ? null : event.deviceId;
+    const key = JSON.stringify([starterEvent ? 'starter' : 'device', subject, deviceId]);
     if (!readsByDevice.has(key)) readsByDevice.set(key, { subject, deviceId, times: [] });
     readsByDevice.get(key).times.push(Date.parse(event.at));
   }
@@ -56,7 +64,8 @@ export function detect(events) {
     for (let end = 0; end < times.length; end++) {
       while (times[end] - times[start] > 10 * 60 * 1000) start++;
       if (end - start + 1 > 120) {
-        return { action: 'propose_revocation', reasonCode: 'burst_read', subject, deviceId };
+        return { action: 'propose_revocation', reasonCode: 'burst_read', subject,
+          ...(deviceId === null ? {} : { deviceId }) };
       }
     }
   }

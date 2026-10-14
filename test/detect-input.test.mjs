@@ -6,14 +6,16 @@ import { detect, readDetectionEvents } from '../src/detect.mjs';
 const event = () => ({ at: '2026-10-01T00:00:00.000Z', method: 'GET',
   identity: { sub: 'learner_fixture' } });
 
-test('legacy fixture sequences without network evidence remain readable and observed', () => {
+test('original fixture sequences remain readable and follow the supplied burst contract', () => {
   for (const count of [30, 121, 200]) {
     const events = Array.from({ length: count }, (_, i) => ({ ...event(),
       at: new Date(Date.UTC(2026, 9, 1) + i * 2000).toISOString() }));
     const parsed = readDetectionEvents(events);
     assert.equal(parsed.length, count);
     assert.deepEqual(parsed, events);
-    assert.deepEqual(detect(events), { action: 'observe' });
+    assert.deepEqual(detect(events), count > 120
+      ? { action: 'propose_revocation', reasonCode: 'burst_read', subject: 'learner_fixture' }
+      : { action: 'observe' });
     assert.notEqual(parsed[0], events[0]);
     assert.notEqual(parsed[0].identity, events[0].identity);
   }

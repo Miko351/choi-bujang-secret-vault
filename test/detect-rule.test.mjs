@@ -14,7 +14,7 @@ function reads(count, overrides = {}) {
 
 test('only the composite local fixture proposes revocation; all practice cases match', async () => {
   const results = await checkDetection(detect);
-  assert.equal(results.length, 13);
+  assert.equal(results.length, 19);
   assert.ok(results.every(result => result.passed));
   assert.deepEqual(detect(reads(121)), { action: 'propose_revocation',
     reasonCode: 'burst_read', subject: 'learner_fixture', deviceId: 'a'.repeat(16) });
@@ -40,6 +40,21 @@ test('ten-minute window includes its boundary but not a millisecond beyond it', 
   assert.equal(detect(events).action, 'propose_revocation');
   events[120].at = '2026-10-01T00:10:00.001Z';
   assert.deepEqual(detect(events), { action: 'observe' });
+});
+
+test('original starter proposals use its exact result shape, without guessed device or network', () => {
+  const original = reads(121).map(({ at, method, identity }) => ({ at, method, identity }));
+  const before = structuredClone(original);
+  assert.deepEqual(detect(original), { action: 'propose_revocation',
+    reasonCode: 'burst_read', subject: 'learner_fixture' });
+  assert.deepEqual(original, before);
+  assert.deepEqual(detect(original.slice(0, 120)), { action: 'observe' });
+  for (const extra of [{ signals: undefined }, { deviceId: undefined },
+    { deviceRegistered: false }, { role: 'instructor' }]) {
+    assert.deepEqual(detect(original.map(event => ({ ...event, ...extra }))), { action: 'observe' });
+  }
+  assert.deepEqual(detect(original.map(event => ({ ...event,
+    identity: { sub: event.identity.sub, deviceId: 'a'.repeat(16) } }))), { action: 'observe' });
 });
 
 test('a proposal targets one registered device without aggregating or changing other devices', () => {

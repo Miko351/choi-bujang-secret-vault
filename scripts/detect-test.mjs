@@ -17,6 +17,19 @@ function reads(count, { intervalSeconds = 2, owner = subject, start = START,
 }
 
 const cases = [
+  ...[
+    { name: '원본 계약·정상 조회 30건', count: 30 },
+    { name: '원본 계약·10분 안에 120건', count: 120 },
+    { name: '원본 계약·10분 안에 121건', count: 121, proposal: true },
+    { name: '원본 계약·폭주 조회 200건', count: 200, proposal: true },
+    { name: '원본 계약·10분 밖 조회 200건', count: 200, options: { intervalSeconds: 7 } },
+  ].map(item => ({ name: item.name,
+    events: reads(item.count, item.options).map(({ at, method, identity }) => ({ at, method, identity })),
+    expected: item.proposal ? { action: 'propose_revocation', reasonCode: 'burst_read', subject }
+      : { action: 'observe' } })),
+  { name: '원본 계약·다른 사용자 각각 100건', events: [...reads(100),
+    ...reads(100, { owner: 'other_fixture' })].map(({ at, method, identity }) => ({ at, method, identity })),
+    expected: { action: 'observe' } },
   { name: '정상 네트워크 조회 30건', events: reads(30, { network: 'usual' }), expected: { action: 'observe' } },
   { name: '낯선 네트워크·10분 안에 120건', events: reads(120), expected: { action: 'observe' } },
   { name: '복합 의심: 낯선 네트워크·10분 안에 121건', events: reads(121), expected: {
