@@ -74,3 +74,23 @@
 {"moduleKey":"privilege","at":"2026-10-14T11:28:02.500Z","evidenceAlertId":"pv-15","action":"alert","confidence":0.5,"pattern":"승인 범위를 벗어난 관리자 그룹 추가","status":"alerted"}
 {"moduleKey":"privilege","at":"2026-10-14T11:28:02.501Z","evidenceAlertId":"pv-16","action":"alert","confidence":0.5,"pattern":"낯선 관리자 명령과 권한 상승 정황","status":"alerted"}
 {"moduleKey":"privilege","at":"2026-10-14T11:28:02.501Z","evidenceAlertId":"pv-17","action":"alert","confidence":0.5,"pattern":"승인 범위를 벗어난 관리자 그룹 추가","status":"alerted"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.686Z","evidenceAlertId":"ex-01","action":"block","confidence":0.85,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.692Z","evidenceAlertId":"ex-02","action":"block","confidence":0.9,"pattern":"업무 시간 밖 압축 자료 반출","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.694Z","evidenceAlertId":"ex-03","action":"block","confidence":0.85,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.694Z","evidenceAlertId":"ex-04","action":"block","confidence":0.85,"pattern":"명령 통로와 다른 프로토콜을 통한 자료 반출","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.695Z","evidenceAlertId":"ex-05","action":"block","confidence":0.85,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.696Z","evidenceAlertId":"ex-06","action":"block","confidence":0.85,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.696Z","evidenceAlertId":"ex-07","action":"block","confidence":0.9,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.697Z","evidenceAlertId":"ex-08","action":"block","confidence":0.85,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.697Z","evidenceAlertId":"ex-09","action":"block","confidence":0.9,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.698Z","evidenceAlertId":"ex-10","action":"block","confidence":0.85,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"pending","reasonCode":"verified_target_or_rule_sink_missing"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.698Z","evidenceAlertId":"ex-11","action":"alert","confidence":0.65,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"alerted"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.699Z","evidenceAlertId":"ex-12","action":"alert","confidence":0.5,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"alerted"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.700Z","evidenceAlertId":"ex-13","action":"alert","confidence":0.5,"pattern":"업무 시간 밖 압축 자료 반출","status":"alerted"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.701Z","evidenceAlertId":"ex-14","action":"alert","confidence":0.65,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"alerted"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.701Z","evidenceAlertId":"ex-15","action":"alert","confidence":0.5,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"alerted"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.702Z","evidenceAlertId":"ex-16","action":"alert","confidence":0.5,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"alerted"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.703Z","evidenceAlertId":"ex-17","action":"alert","confidence":0.5,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"alerted"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.703Z","evidenceAlertId":"ex-18","action":"alert","confidence":0.5,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"alerted"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.704Z","evidenceAlertId":"ex-19","action":"alert","confidence":0.5,"pattern":"낯선 외부 목적지로의 대용량 송신","status":"alerted"}
+{"moduleKey":"exfiltration","at":"2026-10-14T11:46:29.704Z","evidenceAlertId":"ex-20","action":"alert","confidence":0.65,"pattern":"업무 시간 밖 압축 자료 반출","status":"alerted"}
