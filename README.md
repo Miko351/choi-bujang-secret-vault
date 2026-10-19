@@ -1,6 +1,14 @@
 # BYTE BACK 방어전 시작 틀 R5
 
 이 저장소는 방어전 R5 시작 틀에서 출발했습니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
+## 14단계 저장점 · 업무 앱 접근 요청 결과 표시 · 2026-10-19
+
+학생 기능 변경은 on-client/student/extension.mjs의 renderDecision만입니다. 제공 UI가 넘기는 status/mode/data/error/appId를 읽고 요청 전 안내, 판정 확인 중, 판정 수신, 요청 실패를 나눠 새 DOM을 반환합니다. 접근 허용(allow)·접근 거부(deny)·추가 확인 필요(challenge)·판정 확인 불가(unknown)를 구분하고, ok 응답의 앱 ID·판정 이유·판정 시각을 표시합니다. 목록에 없는 판정은 unknown으로 처리하고 error에서는 서버 message와 요청 실패 안내를 표시하며 접근 거부 판정이 아님을 밝힙니다. 허용은 실제 업무 앱 접속 성공을 보장하지 않으며 추가 확인은 이 앱이 대신 수행하지 않습니다. HTML을 해석하지 않고 createElement와 textContent로 표시하며, 대기·오류 상태에서 이전 판정 자료를 읽지 않습니다.
+
+문법 검사 통과. 일시적 모의 DOM 검사에서 요청 상태·모드 16조합, 판정·모드 16조합과 알 수 없는 판정 입력 8가지, 이유·시각 표시, 입력 교체와 이전 결과 제거, 오류와 거부 구분을 확인했습니다. 사용자는 예제 서버의 library 허용·repository 거부·approval 추가 확인 결과와 각 이유·시각, Tab·Enter 요청 후 표시 갱신을 직접 확인했다고 보고했습니다. 예제 서버를 종료하고 library를 요청했을 때 요청 실패와 이전 판정·이유·시각 제거도 확인했습니다. unknown은 모의 검사로만 확인했고 실제 계정·SDP 판정과 공식 제출·통과는 아직 미확인입니다. 네 판정을 재현하려고 정책이나 인증 정보를 변경하지 않았습니다.
+
+재현: on-client 폴더에서 npm.cmd run check로 문법을 검사합니다. 예제 화면은 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\start-alekov.ps1 -Demo -Port 5190으로 실행해 http://127.0.0.1:5190 를 열고 업무 앱의 접속 요청 버튼과 학생 구현 표시를 비교합니다. 이미 서버가 켜져 있으면 브라우저를 새로고침해 학생 코드를 읽습니다. 요청 실패 확인은 예제 서버를 Ctrl+C로 종료하고 열린 화면의 접속 요청 버튼을 눌러 확인합니다. 예제는 실제 계정 연결이 아닙니다. 13단계 renderIdentity와 다른 함수·제공 UI·서버·인증 설정·기존 1~12단계 기능을 보존했습니다. 기존 자료실 설정 step 12·허용 경로 17개·RULE_IDS 네 개·저장소/배포/발급자/원본 API/judgeIssuer는 유지합니다. 직전 저장점은 1b9f843입니다.
+
 ## 13단계 저장점 · 상태 코드 병기 보완 · 2026-10-19
 
 d0613fa 제출본의 원문 피드백에서 네 항목은 충족했고 student-identity-updates의 상태 코드 병기가 빠졌다는 설명을 받았습니다. on-client/student/extension.mjs의 renderIdentity 안 statusLabel 한 줄만 수정해 현재 로그인 정보와 기기·세션 목록 모두 한국어 설명과 원래 코드를 나란히 표시합니다. 예: 보안 기준 충족(compliant), 보안 기준 미충족(noncompliant), 활성(active), 만료(expired), 철회됨(revoked), 확인 불가(unknown). 다른 함수·제공 UI·서버·인증 설정과 기존 자료실 기능은 유지합니다.
