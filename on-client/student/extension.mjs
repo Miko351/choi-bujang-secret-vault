@@ -25,7 +25,7 @@ export function createStudentView() {
       const field = (list, label, value) => {
         list.append(node('dt', label), node('dd', textValue(value)));
       };
-      const statusLabel = (labels, status) => Object.hasOwn(labels, status) ? labels[status] : '확인 불가';
+      const statusLabel = (labels, status) => Object.hasOwn(labels, status) ? `${labels[status]}(${status})` : '확인 불가';
       const block = (title, resource, renderData) => {
         const section = node('section');
         section.append(node('h3', title));

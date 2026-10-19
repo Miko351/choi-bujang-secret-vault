@@ -1,6 +1,12 @@
 # BYTE BACK 방어전 시작 틀 R5
 
 이 저장소는 방어전 R5 시작 틀에서 출발했습니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
+## 13단계 저장점 · 상태 코드 병기 보완 · 2026-10-19
+
+d0613fa 제출본의 원문 피드백에서 네 항목은 충족했고 student-identity-updates의 상태 코드 병기가 빠졌다는 설명을 받았습니다. on-client/student/extension.mjs의 renderIdentity 안 statusLabel 한 줄만 수정해 현재 로그인 정보와 기기·세션 목록 모두 한국어 설명과 원래 코드를 나란히 표시합니다. 예: 보안 기준 충족(compliant), 보안 기준 미충족(noncompliant), 활성(active), 만료(expired), 철회됨(revoked), 확인 불가(unknown). 다른 함수·제공 UI·서버·인증 설정과 기존 자료실 기능은 유지합니다.
+
+문법 검사와 모의 기기·세션 상태 12조합에서 현재 정보·목록의 코드 병기를 확인했고 loading/error의 모드·실패 안내 및 이전 사용자 값 제거도 확인했습니다. 코드 변경 범위는 해당 한 줄로 대조했습니다. 수정된 코드 병기의 실제 브라우저 확인과 수정본 재판정은 아직 미확인입니다. 아래 최초 저장점의 화면 확인 기록은 코드 병기 수정 이전의 결과입니다. 재확인은 on-client 폴더에서 npm.cmd run check 후 예제 서버 화면을 브라우저에서 새로고침해 확인 불가(unknown)·활성(active)가 표시되는지 봅니다. 기존 자료실 설정 step 12·허용 경로 17개·RULE_IDS 네 개·저장소/배포/발급자/원본 API/judgeIssuer는 그대로이며 직전 저장점은 d0613fa입니다.
+
 ## 13단계 저장점 · 케셰브 로그인·기기·세션 표시 · 2026-10-19
 
 기존 1~12단계 자료실과 XDR 과제를 보존하고, 같은 저장소의 on-client에 보안 Agent 시작 틀 0.2.11을 추가했습니다. 이번 학생 기능 변경은 on-client/student/extension.mjs의 renderIdentity뿐이며 다른 함수의 기본 문구와 제공 서버·public/app.js·인증 설정은 유지합니다. me/devices/sessions의 loading·ok·error와 demo/disconnected/unknown 안내를 각각 표시합니다. 사용자·기기·세션의 ID와 이름, 보안 기준 충족·미충족·확인 불가, 세션 활성·만료·철회됨·확인 불가를 구분합니다. DOM은 createElement와 textContent로 만들고, 새 입력마다 새 요소를 반환하며 오류에서는 이전 사용자 데이터를 표시하지 않습니다.
