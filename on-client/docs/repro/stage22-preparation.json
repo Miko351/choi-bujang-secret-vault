@@ -1,0 +1,170 @@
+{
+  "kind": "preparation-reproduction",
+  "commit": "97de1935c68cd5be70c39d2d1fe2d5e2452f7958",
+  "sourceRepository": "https://github.com/Miko351/choi-bujang-secret-vault",
+  "sourceBranch": "main",
+  "checkout": "detached",
+  "directory": "D:\\ALEPH_choi-bujang-secret-vault-repro-22-97de193",
+  "checkedAt": "2026-10-28T05:06:50.721Z",
+  "node": "v22.18.0",
+  "platform": "win32",
+  "samePhysicalPc": true,
+  "newCheckout": true,
+  "clientVersion": "0.2.21",
+  "clientExternalDependencies": 0,
+  "credentialsCopied": false,
+  "http": [
+    {
+      "path": "/",
+      "method": "GET",
+      "status": 200,
+      "checkedAt": "2026-10-28T05:06:50.683Z",
+      "threeMenuLabels": true
+    },
+    {
+      "path": "/app.js",
+      "method": "GET",
+      "status": 200,
+      "checkedAt": "2026-10-28T05:06:50.696Z",
+      "matchesCheckout": true
+    },
+    {
+      "path": "/student/extension.mjs",
+      "method": "GET",
+      "status": 200,
+      "checkedAt": "2026-10-28T05:06:50.702Z",
+      "matchesCheckout": true
+    },
+    {
+      "path": "/api/me",
+      "method": "GET",
+      "status": 503,
+      "checkedAt": "2026-10-28T05:06:50.705Z",
+      "mode": "disconnected",
+      "code": "ENGINE_NOT_CONNECTED"
+    },
+    {
+      "path": "/api/apps",
+      "method": "GET",
+      "status": 503,
+      "checkedAt": "2026-10-28T05:06:50.707Z",
+      "mode": "disconnected",
+      "code": "ENGINE_NOT_CONNECTED"
+    },
+    {
+      "path": "/api/events",
+      "method": "GET",
+      "status": 503,
+      "checkedAt": "2026-10-28T05:06:50.709Z",
+      "mode": "disconnected",
+      "code": "ENGINE_NOT_CONNECTED"
+    },
+    {
+      "path": "/api/devices",
+      "method": "GET",
+      "status": 503,
+      "checkedAt": "2026-10-28T05:06:50.71Z",
+      "mode": "disconnected",
+      "code": "ENGINE_NOT_CONNECTED"
+    },
+    {
+      "path": "/api/sessions",
+      "method": "GET",
+      "status": 503,
+      "checkedAt": "2026-10-28T05:06:50.712Z",
+      "mode": "disconnected",
+      "code": "ENGINE_NOT_CONNECTED"
+    },
+    {
+      "path": "/api/diagnostics",
+      "method": "GET",
+      "status": 200,
+      "checkedAt": "2026-10-28T05:06:50.713Z",
+      "mode": "disconnected",
+      "component": "on-client"
+    },
+    {
+      "path": "/api/vulnerabilities",
+      "method": "GET",
+      "status": 200,
+      "checkedAt": "2026-10-28T05:06:50.714Z",
+      "mode": "disconnected",
+      "code": "PROJECT_NOT_CONFIGURED",
+      "scanStatus": "not_configured"
+    }
+  ],
+  "mock": [
+    {
+      "stage": 13,
+      "result": "demo-render-ok"
+    },
+    {
+      "stage": 14,
+      "result": "three-demo-decisions-and-error"
+    },
+    {
+      "stage": 15,
+      "result": "demo-detail-and-empty"
+    },
+    {
+      "stage": 16,
+      "result": "mock-diagnostics-projection"
+    },
+    {
+      "stage": 17,
+      "result": "test-mode-only-no-remote-ai"
+    },
+    {
+      "stage": 18,
+      "result": "mock-evidence-binding-no-model-call"
+    },
+    {
+      "stage": 19,
+      "result": "mock-ack-effect-separation-no-dispatch"
+    },
+    {
+      "stage": 20,
+      "result": "mock-partial-preservation-no-osv-query"
+    },
+    {
+      "stage": 21,
+      "result": "committed-runbook-and-entrypoints-present"
+    }
+  ],
+  "notRun": [
+    "fresh operating system",
+    "real SDP connection",
+    "real AI inference",
+    "real security dispatch or effect",
+    "real OSV lookup",
+    "final stage22 commit reproduction"
+  ],
+  "browserUserVerification": {
+    "result": "three menus visible without connection errors",
+    "url": "http://127.0.0.1:5191/",
+    "source": "user message in this task",
+    "recordedAt": "2026-10-28T05:17:22.9938482Z",
+    "scope": "page access and menu visibility only; no account approval, AI inference or dispatch confirmed",
+    "statement": "5191 맞지? 문제없이 접속되고 메뉴 잘 보임"
+  },
+  "fileHashes": {
+    "on-client/student/extension.mjs": "fdb252c51c3e4f803997e2ccdf89f3f3ba8d7b526329bcfad01901b13950849c",
+    "on-client/public/app.js": "6cf5c82d5314b6aa26eb5324cf8546233b3f27c3253b0379a77980b741fa7f22",
+    "on-client/src/server.mjs": "f8ed6305af15cff9356c674c5106f102a0d4f30e7e2d78430f21961afc966282",
+    "on-client/package.json": "468d8359890e77de22f9c2a7a15a76ddcc3337ab6fc85cc1efa7b4a07077a8f6",
+    "on-client/docs/STUDENT_RUNBOOK.md": "775a5afaf006a537b58ece682c1738882a0cea321128072f373fe366ceee7d23"
+  },
+  "stopRestart": {
+    "checkedAt": "2026-10-28T05:09:41.8614371Z",
+    "stoppedOwnProcess": true,
+    "stoppedHttpFailed": true,
+    "restartStatus": 200,
+    "restartedProcess": 3208,
+    "method": "provided background launcher; owned process stopped; independent GET after restart",
+    "captureAttempt": "initial combined harness waited on inherited stdout; own child was stopped to release capture, subsequent GET in that harness failed; no app code changed",
+    "correctedHarness": "launcher and HTTP verification invoked separately; final GET returned 200"
+  },
+  "recordVersion": 1,
+  "releaseState": "verification_in_progress",
+  "submissionCommit": null
+}
