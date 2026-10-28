@@ -1,6 +1,20 @@
 # BYTE BACK 방어전 시작 틀 R5
 
 이 저장소는 방어전 R5 시작 틀에서 출발했습니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
+## 20단계 저장점 · 설치 패키지 버전과 알려진 취약점 조회 결과 · 2026-10-28
+
+학생 코드 변경은 on-client/student/extension.mjs의 renderVulnerabilities뿐입니다. 조회 전(idle)·조회 중(loading)·조회 실패(error)·결과 수신(ok)을 구분하고 진행 중·실패 시 이전 표를 표시하지 않습니다. 전체 결과의 complete·partial·not_checked·not_configured·unverifiable을 원래 코드와 한국어 설명으로 표시합니다. 전달된 lockfileVersion·lockfileHash·checkedAt만 표시하고 없는 값을 만들지 않습니다. 패키지마다 이름·정확한 설치 버전·조회 상태·출처·조회 시각, 취약점마다 ID와 modified를 표시합니다. 유효한 패키지 행에는 data-student-package-name/version을 붙이며 버전 범위를 설치 버전으로 표시하지 않습니다.
+
+일부 조회 실패 시 이미 받은 취약점 ID·수정 시각을 유지하고, unverifiable의 일부 확인과 전체 조회 확인 불가를 명시합니다. none_found는 해당 버전의 조회 범위에서 알려진 항목이 없다는 뜻으로만 설명하며 패키지나 앱 전체의 안전을 보장하지 않습니다. 새 입력마다 새 DOM을 만들고 textContent로 문자 그대로 표시합니다. 조회·취소·재시도는 제공 화면이 담당하며 학생 함수에 네트워크 요청이나 버튼을 추가하지 않았습니다. 앞 단계 함수·제공 서버·public/app.js·인증 설정·패키지와 허용 목록은 보존했습니다.
+
+직접 점검: 문법과 변경 범위 검사가 통과했습니다. 모의 DOM으로 조회 상태·모드 12조합, 전체 상태 5개, 패키지 상태 3개, 정확한 버전 5개, 범위·잘못된 버전 10개, 새 입력 교체 12쌍, 일부 취약점 보존·메타데이터 생략·해시 교체·안전한 문자 표시를 확인했습니다. 기존 제공 화면의 취소 후 늦은 응답 억제, 직접 재조회로 오류 해소, 중첩 응답 순서와 초기화는 모의 응답으로 점검했습니다. 외부 OSV 조회와 패키지 변경은 하지 않았습니다.
+
+사용자 화면 확인: 제공 화면의 PROJECT_NOT_CONFIGURED와 학생 화면의 조회 준비 미완료(not_configured), 조회 시각 2026-10-28T03:48:22.510Z가 일치했습니다. 학생 화면은 대상 프로젝트 설정 필요·미조회와 빈 결과를 알려진 취약점 없음으로 바꾸지 않았습니다. 전달되지 않은 lock 버전·해시와 패키지 행은 표시하지 않았습니다. 실제 OSV 조회, 실제 설치 패키지 버전과 package-lock.json의 대조, 실제 화면의 취소·네트워크 재조회는 미실행·미확인으로 남깁니다. 이 기록은 공식 판정이나 운영 연결 완료를 대신하지 않습니다.
+
+재현: D:\ALEPH_choi-bujang-secret-vault\on-client에서 npm.cmd run check로 문법을 확인합니다. powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\start-alekov.ps1로 앱을 실행하고 http://127.0.0.1:5189 에서 Ctrl+F5 → 보호 현황 → 설치 패키지 조회를 누릅니다. 제공·학생 결과의 상태와 조회 시각을 대조합니다. 현재 not_configured는 대상 프로젝트 설정이 필요하다는 정상적인 미조회 안내이며 취약점 없음이 아닙니다. 실제 조회 대상과 공개 허용 목록이 준비된 환경에서만 정확한 설치 버전·출처·시각·부분 결과를 직접 대조합니다. 취약점을 만들려고 의존성을 낮추거나 대상 경로·허용 목록을 임의로 설정하지 않습니다.
+
+기존 1~12단계 자료실의 aleph.config.json step 12·허용 경로 17개·RULE_IDS 네 개·저장소/배포/발급자/원본 API/judgeIssuer는 그대로입니다. 20단계는 같은 저장소의 on-client 학생 코드를 대상으로 하며 직전 저장점은 eab7174853b72af11b75051c5213a77d68511b01입니다.
+
 ## 19단계 저장점 · 보안 조치 요청 상태와 실제 결과 구분 · 2026-10-28
 
 학생 코드 변경은 on-client/student/extension.mjs의 renderAction뿐입니다. idle·loading·prepared·executing·pending·succeeded·denied·failed·unknown·error·expired를 한국어 뜻과 원래 코드로 구분합니다. 준비됨은 미실행, 전송 중과 접수 응답(ACK)은 효과 미확인으로 표시하며, succeeded이고 observation.effectApplied가 정확히 true인 경우에만 효과 확인·관측 시각·effectApplied: true를 표시합니다. 그 밖의 성공 주장과 알 수 없는 상태는 결과 불명으로 표시하고 재전송 대신 제공 화면의 결과만 재조회하도록 안내합니다. 준비된 조치는 확인 기한과 별도 사람 확인이 필요하며, 화면 취소는 이미 전달된 효과를 되돌리지 않는다고 표시합니다.
