@@ -1,6 +1,16 @@
 # BYTE BACK 방어전 시작 틀 R5
 
 이 저장소는 방어전 R5 시작 틀에서 출발했습니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
+## 케셰브 학생 실행 안내 · 21단계 문서 · 2026-10-28
+
+케셰브는 직원 본인의 로그인·기기·현재 세션, 업무 앱 접근 판정, 접속·XDR 기록과 참고용 AI 설명, 조치 요청 상태, 설치 패키지 취약점 조회 결과를 구분해 보여 주는 로컬 보안 Agent입니다. 실제 실행 위치·명령·종료·재실행, 글로 쓴 구성도, 입력 계약·제공 코드와 학생 코드의 경계, 오류별 확인 순서와 미확인 범위는 [학생용 실행 설명서와 시스템 구성도](on-client/docs/STUDENT_RUNBOOK.md)에 정리했습니다. 제공 설명서와 13~20단계 코드는 보존했습니다.
+
+실행 폴더는 D:\ALEPH_choi-bujang-secret-vault\on-client이며, 이 폴더에서 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\start-alekov.ps1를 실행하고 http://127.0.0.1:5189/ 을 엽니다. 해당 실행 창의 Ctrl+C로 중지한 뒤 같은 명령으로 재실행합니다. Windows·시작 틀 0.2.21·Node.js v22.18.0·Windows PowerShell 5.1.26100.9711을 확인했고 수업 기준 Node.js는 24.19.0, 실제 런처 허용 범위는 22~24입니다. 문서 점검 셸은 PowerShell 7.6.5, Git은 2.40.0.windows.1이며 브라우저 정확한 버전과 다른 OS의 실행은 미확인입니다. on-client는 외부 npm 의존성과 lock 파일이 없고 루트의 패키지·lock 파일은 기존 자료실용입니다.
+
+구성은 브라우저의 제공 public/app.js와 학생 student/extension.mjs → 제공 로컬 src/server.mjs → 준비된 경우에만 ALEPH SDP 엔진 / CLCO AI 게이트웨이 / OSV 공개 조회입니다. 접근 제어 엔진의 출처는 ALEPH SDP 엔진이며 학생 판정·탐지 규칙과 UI 구현을 구분합니다. 원천 엔진은 현재 미연결, 실제 사건 설명·집행·OSV 조회는 미실행입니다. 계정·AI 앱 승인과 모델 목록 verified·1개는 사용자 화면에서 확인한 범위이며 전체 엔진 연결 성공을 뜻하지 않습니다.
+
+문서는 코드 대조 기준 a71210cb3b002b9f9060f3c895f2f067ab3afd14의 파일·명령·버튼·설정 견본과 대조해 작성했습니다. 이전 단계 실제 화면 보고와 모의 점검을 구분합니다. 이번 21단계에서 사용자는 기존 앱 중지 후 새 PowerShell 창에서 문서 명령으로 재실행했고, 계정 연결 준비·Node v22.18.0 참고·SQLite 경고 뒤 정상 시작·서버 응답과 브라우저 세 메뉴 표시를 확인했다고 보고했습니다. 이번 종료 직후 HTTP 실패 실측과 재실행 후 실제 원천 연결 재확인은 미실행입니다. 21·22단계는 과제 화면에 저장소와 실제 40자리 커밋을 직접 입력하는 원문 AI 검토이며 서버의 실행 인증이 아닙니다. 비공개 원문 전달 도구의 구체 명령은 해당 과제 화면의 안내를 받은 뒤 확인하며 임의로 만들지 않았습니다. 비밀 설정과 일회성 승인 정보는 문서에 넣지 않았습니다.
+
 ## 20단계 저장점 · 설치 패키지 버전과 알려진 취약점 조회 결과 · 2026-10-28
 
 학생 코드 변경은 on-client/student/extension.mjs의 renderVulnerabilities뿐입니다. 조회 전(idle)·조회 중(loading)·조회 실패(error)·결과 수신(ok)을 구분하고 진행 중·실패 시 이전 표를 표시하지 않습니다. 전체 결과의 complete·partial·not_checked·not_configured·unverifiable을 원래 코드와 한국어 설명으로 표시합니다. 전달된 lockfileVersion·lockfileHash·checkedAt만 표시하고 없는 값을 만들지 않습니다. 패키지마다 이름·정확한 설치 버전·조회 상태·출처·조회 시각, 취약점마다 ID와 modified를 표시합니다. 유효한 패키지 행에는 data-student-package-name/version을 붙이며 버전 범위를 설치 버전으로 표시하지 않습니다.
