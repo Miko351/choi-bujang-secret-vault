@@ -19,6 +19,28 @@ export function createStudentView({ api, onChange } = {}) {
     && number(value.usedBytes) && value.usedBytes <= value.totalBytes;
   const gib = value => (value / 1024 ** 3).toFixed(1) + ' GiB';
   const time = value => new Date(value).toLocaleString('ko-KR');
+  const reasonText = metric => ({
+    permission_denied: '일반 권한으로 읽을 권한이 없습니다. 권한을 높이지 않고 확인 불가로 둡니다.',
+    unsupported: '이 운영체제에서 제공되지 않는 조회입니다.',
+    timeout: '조회 시간이 초과됐습니다.',
+    cancelled: '조회가 취소됐습니다.',
+    query_failed: '제공 조회 기능이 이 항목을 읽지 못했습니다.',
+    invalid_response: '응답 값이나 형식을 확인할 수 없습니다.',
+    invalid_sample: 'CPU 표본의 시간 차이를 확인할 수 없습니다.',
+  }[metric?.reason] ?? (metric?.state === 'ok' ? '응답 값이나 단위를 확인할 수 없습니다.' : '제공된 조회 결과가 없습니다.'));
+  const sampleOf = data => {
+    const m = data.metrics;
+    return {at: data.measuredAt,
+      cpu: m.cpu?.state === 'ok' && percent(m.cpu.usagePercent) ? m.cpu.usagePercent : null,
+      memory: memoryOk(m.memory) ? m.memory.usedBytes / m.memory.totalBytes * 100 : null,
+      memoryUsed: memoryOk(m.memory) ? m.memory.usedBytes : null,
+      memoryTotal: memoryOk(m.memory) ? m.memory.totalBytes : null,
+      drives: m.drives && ['ok', 'partial'].includes(m.drives.state) ? driveRows(data).map(d => capacity(d)
+        ? {id: d.id, free: d.freeBytes, total: d.totalBytes}
+        : {id: d.id, free: null, reason: reasonText(d)}) : null,
+      reasons: {cpu: reasonText(m.cpu), memory: reasonText(m.memory), drives: reasonText(m.drives)},
+    };
+  };
   const profilesOk = value => value?.state === 'ok' && Array.isArray(value.profiles) && value.profiles.length === 3
     && ['Domain', 'Private', 'Public'].every(name => value.profiles.some(p => p.name === name && typeof p.enabled === 'boolean'));
   const driveRows = data => Array.isArray(data?.metrics?.drives?.volumes)
@@ -78,7 +100,7 @@ export function createStudentView({ api, onChange } = {}) {
       const cpu = m.cpu?.state === 'ok' && percent(m.cpu.usagePercent) ? m.cpu.usagePercent : null;
       const memory = memoryOk(m.memory) ? m.memory.usedBytes / m.memory.totalBytes * 100 : null;
       if (!pc.samples.some(sample => sample.at === data.measuredAt)) {
-        pc.samples.push({at: data.measuredAt, cpu, memory});
+        pc.samples.push(sampleOf(pc.data));
         if (pc.samples.length > 120) pc.samples.shift();
       }
       remember({kind: missing.length ? 'partial' : 'measured', at: data.measuredAt,
@@ -110,6 +132,64 @@ export function createStudentView({ api, onChange } = {}) {
     const section = node('details'); section.open = opened.get(key) === true; section.append(node('summary', label));
     section.addEventListener('toggle', () => opened.set(key, section.open)); return section;
   };
+  function comparison(data) {
+    const section = node('section', undefined, 'card');
+    section.setAttribute('data-dashboard-comparison', 'previous-sample');
+    section.append(node('h4', '직전 실측과 비교한 변화 설명'));
+    if (!data) {
+      section.append(node('p', '비교 확인 불가: 현재 실측이 없습니다. 조회 중·실패·오래된 결과를 현재 비교에 사용하지 않습니다.'));
+      return section;
+    }
+    const current = sampleOf(data), index = pc.samples.findIndex(sample => sample.at === current.at);
+    const previous = index > 0 ? pc.samples[index - 1] : null;
+    if (!previous) {
+      section.append(node('p', '비교 확인 불가: 직전 실측 표본이 없습니다. 직접 한 번 더 조회하세요.'));
+      return section;
+    }
+    if (Date.parse(previous.at) >= Date.parse(current.at)) {
+      section.append(node('p', '비교 확인 불가: 두 표본의 시간 순서를 확인할 수 없습니다.'));
+      return section;
+    }
+    section.append(node('p', '직전: ' + time(previous.at) + ' → 현재: ' + time(current.at)
+      + ' · 서버 조회 완료 시각 기준. 값별 독립 측정 시각은 제공되지 않습니다.'));
+    const list = node('ul');
+    const change = (before, after, unit) => {
+      const delta = after - before;
+      return Math.abs(delta).toFixed(1) + ' ' + unit + (delta > 0 ? ' 증가' : delta < 0 ? ' 감소' : ' 변화 없음')
+        + (delta !== 0 && Math.abs(delta) < .05 ? ' (표시 정밀도보다 작음)' : '');
+    };
+    for (const [key, label] of [['cpu', 'CPU 사용률'], ['memory', '메모리 사용률']]) {
+      if (current[key] === null || previous[key] === null) {
+        list.append(node('li', label + ': 비교 확인 불가 · '
+          + (current[key] === null ? '현재: ' + current.reasons[key] : '직전: ' + previous.reasons[key])));
+      } else if (key === 'memory' && current.memoryTotal !== previous.memoryTotal) {
+        list.append(node('li', label + ': 비교 확인 불가 · 두 표본의 전체 메모리 용량이 다릅니다.'));
+      } else {
+        list.append(node('li', label + ': ' + previous[key].toFixed(1) + '% → ' + current[key].toFixed(1) + '% · '
+          + change(previous[key], current[key], '퍼센트포인트(%p)')));
+      }
+    }
+    if (current.memoryUsed !== null && previous.memoryUsed !== null && current.memoryTotal === previous.memoryTotal) {
+      list.append(node('li', '메모리 사용량: ' + gib(previous.memoryUsed) + ' → ' + gib(current.memoryUsed)
+        + ' · ' + change(previous.memoryUsed / 1024 ** 3, current.memoryUsed / 1024 ** 3, 'GiB')));
+    }
+    if (!current.drives || !previous.drives) {
+      list.append(node('li', '드라이브 여유: 비교 확인 불가 · ' + (!current.drives ? '현재: ' + current.reasons.drives : '직전: ' + previous.reasons.drives)));
+    } else {
+      const ids = [...new Set([...previous.drives, ...current.drives].map(d => d.id))].sort();
+      if (!ids.length) list.append(node('li', '드라이브 여유: 비교 확인 불가 · 두 표본에 조회 대상 드라이브가 없습니다.'));
+      for (const id of ids) {
+        const before = previous.drives.find(d => d.id === id), after = current.drives.find(d => d.id === id);
+        const reason = !before ? '직전 표본에 이 드라이브가 없습니다.' : !after ? '현재 표본에 이 드라이브가 없습니다.'
+          : before.free === null ? '직전: ' + before.reason : after.free === null ? '현재: ' + after.reason
+          : before.total !== after.total ? '두 표본의 전체 용량이 달라 같은 범위인지 확인할 수 없습니다.' : null;
+        list.append(node('li', id + ' 여유: ' + (reason ? '비교 확인 불가 · ' + reason
+          : gib(before.free) + ' → ' + gib(after.free) + ' · ' + change(before.free / 1024 ** 3, after.free / 1024 ** 3, 'GiB'))));
+      }
+    }
+    section.append(list, node('p', '제공 PC 조회 결과 두 개의 차이만 설명합니다. 변화만으로 원인·침해·안전을 판단하지 않습니다. 예시 값은 비교하지 않습니다.'));
+    return section;
+  }
   function drawTrend(samples, key, title) {
     const article = node('section', undefined, 'card'); article.append(node('h4', title + ' · 실측 추이'));
     if (!samples.length) { article.append(node('p', '수집한 실측 표본이 없습니다. 과거 구간을 예시 값으로 채우지 않습니다.')); return article; }
@@ -136,6 +216,7 @@ export function createStudentView({ api, onChange } = {}) {
   function dashboard(existingStatus) {
     const root = node('div'); root.setAttribute('data-student-dashboard', 'pc-monitor');
     root.append(node('h3', '케셰브 · 내 PC 관제'), node('p', '실측은 이 PC에서 읽은 값입니다. 예시는 별도 영역에만 표시합니다. 이 화면은 보안 차단·안전 인증이 아닙니다.', 'muted'));
+    root.append(node('p', '제공 기능: 내 PC 상태 조회(/api/pc/status). 학생 추가: 네 카드·추이·직전 실측 비교·조회 기록. 측정 기능을 새로 만들거나 관리자 권한을 요청하지 않습니다.', 'muted'));
     const controls = node('div');
     const refresh = button('학생 PC 실측 조회', 'refresh', () => { void readPc(); }); refresh.disabled = pc.status === 'loading';
     const autoLabel = node('label'), auto = node('input'); auto.type = 'checkbox'; auto.checked = pc.auto; auto.setAttribute('data-dashboard-control', 'auto');
@@ -150,7 +231,13 @@ export function createStudentView({ api, onChange } = {}) {
     const cards = node('div', undefined, 'grid-2'), firstPair = node('div', undefined, 'grid-2'), secondPair = node('div', undefined, 'grid-2');
     const card = (key, title, value, note) => {
       const item = node('article', undefined, 'card'); item.setAttribute('data-dashboard-metric', key);
-      item.append(node('h4', title), node('p', value), node('p', note, 'muted')); return item;
+      const valid = value !== '확인 불가';
+      const metric = key === 'disk' ? (m.drives ?? m.disk) : m[key];
+      item.append(node('h4', title), node('p', value), node('p', note, 'muted'),
+        node('p', valid ? '실측 기준 시각(서버 조회 완료): ' + time(data.measuredAt)
+          : '확인 불가 이유: ' + (data ? reasonText(metric) : pc.status === 'idle' ? '아직 조회하지 않았습니다.' : pc.status === 'loading' ? '조회 중입니다.' : pc.message || '현재 실측을 확인할 수 없습니다.')),
+        node('p', valid ? '값별 독립 측정 시각은 제공되지 않습니다.' : '측정 시각: 확인 불가'));
+      return item;
     };
     const cpu = m.cpu?.state === 'ok' && percent(m.cpu.usagePercent) ? m.cpu.usagePercent.toFixed(1) + '%' : '확인 불가';
     const memory = memoryOk(m.memory) ? (m.memory.usedBytes / m.memory.totalBytes * 100).toFixed(1) + '% · ' + gib(m.memory.usedBytes) + ' / ' + gib(m.memory.totalBytes) : '확인 불가';
@@ -165,12 +252,12 @@ export function createStudentView({ api, onChange } = {}) {
     cards.append(firstPair, secondPair); root.append(cards);
     const driveDetail = details('drives', '드라이브별 용량 · 범위와 확인 불가');
     if (drives.length) {
-      const list = node('ul'); for (const drive of drives) list.append(node('li', drive.id + ' · ' + (capacity(drive) ? gib(drive.freeBytes) + ' 여유 / ' + gib(drive.totalBytes) : '확인 불가 (0으로 합산하지 않음)'))); driveDetail.append(list);
+      const list = node('ul'); for (const drive of drives) list.append(node('li', drive.id + ' · ' + (capacity(drive) ? gib(drive.freeBytes) + ' 여유 / ' + gib(drive.totalBytes) + ' · 실측 기준 시각(서버 조회 완료): ' + time(data.measuredAt) : '확인 불가 · ' + reasonText(drive) + ' · 측정 시각 확인 불가 (0으로 합산하지 않음)'))); driveDetail.append(list);
     } else driveDetail.append(node('p', data ? '전체 드라이브 목록 확인 불가 또는 조회 대상 없음' : '아직 현재 실측 목록이 없습니다.'));
     driveDetail.append(node('p', '문자가 있는 고정 로컬 볼륨만 조회합니다. 이동식·네트워크·문자 없는 볼륨은 합계에서 제외합니다. 1 GiB = 1024³ bytes.'));
     if (fresh) {
-      driveDetail.append(node('p', m.network?.state === 'ok' ? '네트워크 구성: 인터페이스 ' + m.network.interfaceCount + '개. 인터넷·ZTNA 연결 성공을 뜻하지 않습니다.' : '네트워크 구성: 확인 불가'));
-      driveDetail.append(node('p', m.events?.state === 'ok' ? 'Windows 기록: 경고 ' + m.events.warningCount + '건 · 오류 ' + m.events.errorCount + '건' + (m.events.truncated ? ' (최대 5,000건 일부 집계)' : '') : 'Windows 기록: 확인 불가. 기록 0건이나 이상 없음으로 표시하지 않습니다.'));
+      driveDetail.append(node('p', m.network?.state === 'ok' ? '네트워크 구성: 인터페이스 ' + m.network.interfaceCount + '개. 인터넷·ZTNA 연결 성공을 뜻하지 않습니다.' + ' · 실측 기준 시각(서버 조회 완료): ' + time(data.measuredAt) : '네트워크 구성: 확인 불가 · ' + reasonText(m.network)));
+      driveDetail.append(node('p', m.events?.state === 'ok' ? 'Windows 기록: 경고 ' + m.events.warningCount + '건 · 오류 ' + m.events.errorCount + '건' + (m.events.truncated ? ' (최대 5,000건 일부 집계)' : '') + ' · 실측 기준 시각(서버 조회 완료): ' + time(data.measuredAt) : 'Windows 기록: 확인 불가 · ' + reasonText(m.events) + ' 기록 0건이나 이상 없음으로 표시하지 않습니다.'));
     }
     root.append(driveDetail);
     const trends = node('div', undefined, 'grid-2'); trends.append(drawTrend(pc.samples, 'cpu', 'CPU'), drawTrend(pc.samples, 'memory', '메모리')); root.append(trends);
@@ -178,7 +265,7 @@ export function createStudentView({ api, onChange } = {}) {
     const sampleTable = details('samples', '시각별 실측 표');
     const sampleList = node('ul');
     for (const sample of pc.samples) sampleList.append(node('li', time(sample.at) + ' · CPU ' + (sample.cpu === null ? '확인 불가' : sample.cpu.toFixed(1) + '%') + ' · 메모리 ' + (sample.memory === null ? '확인 불가' : sample.memory.toFixed(1) + '%')));
-    sampleTable.append(sampleList); root.append(sampleTable);
+    sampleTable.append(sampleList); root.append(sampleTable, comparison(data));
     const history = node('section'); history.append(node('h4', '이 앱의 조회 기록 · 실제 XDR 경보와 별도'));
     const filterLabel = node('label', '조회 기록 필터'), filter = node('select'); filter.setAttribute('aria-label', '조회 기록 필터'); filter.setAttribute('data-dashboard-control', 'filter');
     for (const [value, label] of [['all', '전체'], ['measured', '실측 확인'], ['partial', '일부 확인 불가'], ['failed', '조회 실패']]) { const option = node('option', label); option.value = value; filter.append(option); } filter.value = pc.filter;
@@ -190,7 +277,7 @@ export function createStudentView({ api, onChange } = {}) {
     root.append(history);
     if (pc.example) {
       const examples = node('section', undefined, 'card'); examples.setAttribute('data-dashboard-example', 'true');
-      examples.append(node('h4', '예시 · 설명용 고정 값 (실제 조회 결과 아님)'), node('p', '예: CPU 25.0%, 메모리 40.0%, C: 여유 100 GiB, D: 여유 200 GiB. 화면 설명용 값이며 실제 카드·추이·기록·합계에 넣지 않습니다.'));
+      examples.append(node('h4', '예시 · 설명용 고정 값 (실제 조회 결과 아님)'), node('p', '예: CPU 25.0%, 메모리 40.0%, C: 여유 100 GiB, D: 여유 200 GiB. 측정 시각 없음: 실제로 측정한 값이 아닙니다. 화면 설명용 값이며 실제 카드·추이·비교·기록·합계에 넣지 않습니다.'));
       root.append(examples);
     }
     const prior = details('prior-status', '기존 기기·세션·알림·진단 정보'); prior.append(existingStatus); root.append(prior);

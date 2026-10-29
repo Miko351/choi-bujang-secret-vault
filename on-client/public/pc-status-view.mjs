@@ -1,12 +1,17 @@
 // 이 PC의 조회 결과만 표시한다. SDP 연결 표시·AI 입력·원격 전송과 독립적이다.
 const REASONS = {
-  permission_denied: '읽기 권한이 없습니다. 관리자 권한으로 바꾸기 전에 담당자에게 확인하세요.',
+  permission_denied: '일반 권한으로 읽을 권한이 없습니다. 권한을 높이지 않고 확인 불가로 둡니다.',
+  query_failed: '제공 조회 기능이 이 항목을 읽지 못했습니다.',
+  invalid_response: '응답 값이나 형식을 확인할 수 없습니다.',
+  invalid_sample: 'CPU 표본의 시간 차이를 확인할 수 없습니다.',
+  cancelled: '조회가 취소됐습니다.',
   unsupported: '이 운영체제에서는 이 항목을 조회하지 않습니다.',
   timeout: '조회 시간이 초과됐습니다. 잠시 후 다시 확인하세요.',
 };
 const bytes = n => `${(n / 1024 ** 3).toFixed(1)} GiB`;
 const number = n => typeof n === 'number' && Number.isFinite(n) && n >= 0;
 const percent = n => number(n) && n <= 100;
+const reasonText = metric => REASONS[metric?.reason] ?? '응답 값이나 형식을 확인할 수 없습니다.';
 const counter = n => Number.isSafeInteger(n) && n >= 0;
 
 export function pcMetricText(key, metric) {
@@ -15,12 +20,12 @@ export function pcMetricText(key, metric) {
     const valid = value => value.state === 'ok' && number(value.totalBytes) && value.totalBytes > 0 && number(value.freeBytes) && value.freeBytes <= value.totalBytes;
     const known = rows.filter(valid), unknown = rows.length - known.length;
     if (!rows.length) return {text: '표시할 고정 로컬 드라이브 없음', note: '드라이브 문자가 있는 고정 로컬 볼륨만 조회합니다.', state: 'unavailable'};
-    if (!known.length) return {text: rows.map(value => value.id + ' 확인 불가').join(' · '), note: '확인하지 못한 용량을 0으로 계산하지 않습니다.', state: 'unavailable'};
+    if (!known.length) return {text: rows.map(value => value.id + ' 확인 불가: ' + reasonText(value)).join(' · '), note: '확인하지 못한 용량을 0으로 계산하지 않습니다.', state: 'unavailable'};
     const total = known.reduce((sum, value) => sum + value.totalBytes, 0), free = known.reduce((sum, value) => sum + value.freeBytes, 0);
-    return {text: rows.map(value => valid(value) ? value.id + ' ' + bytes(value.freeBytes) + ' 여유 / ' + bytes(value.totalBytes) : value.id + ' 확인 불가').join(' · '),
+    return {text: rows.map(value => valid(value) ? value.id + ' ' + bytes(value.freeBytes) + ' 여유 / ' + bytes(value.totalBytes) : value.id + ' 확인 불가: ' + reasonText(value)).join(' · '),
       note: (unknown ? '확인된 ' + known.length + '개 볼륨 합계(일부)' : '고정 로컬 볼륨 합계') + ': ' + bytes(free) + ' 여유 / ' + bytes(total) + '. 네트워크·이동식·문자 없는 볼륨은 제외합니다.', state: unknown ? 'partial' : 'measured'};
   }
-  if (metric?.state !== 'ok') return {text: '확인 불가', note: REASONS[metric?.reason] ?? '이번 조회에서 값을 확인하지 못했습니다. 다시 확인해 주세요.', state: 'unavailable'};
+  if (metric?.state !== 'ok') return {text: '확인 불가', note: reasonText(metric), state: 'unavailable'};
   let text, note;
   if (key === 'cpu' && percent(metric.usagePercent)) {
     text = `${metric.usagePercent.toFixed(1)}% 사용`; note = '짧은 구간의 실측값입니다. 계속 높으면 사용 중인 앱을 확인하세요.';
@@ -61,6 +66,7 @@ export function mountPcStatus(host, {fetchImpl = globalThis.fetch?.bind(globalTh
   async function read() {
     if (disposed || doc.hidden) return;
     stopTimer(); controller?.abort(); const own = ++generation, abort = new AbortController(); controller = abort;
+    unavailable();
     refresh.disabled = true; status.textContent = '이 PC에서 읽는 중…';
     let timedOut = false;
     const deadline = win.setTimeout(() => {timedOut = true; abort.abort();}, timeoutMs);
@@ -76,7 +82,7 @@ export function mountPcStatus(host, {fetchImpl = globalThis.fetch?.bind(globalTh
       if (data?.schema !== 'aleph.on.pc-status.v1' || data.source !== 'local-pc' || !Number.isFinite(measured) || Math.abs(Date.now() - measured) > 60000) throw Error('stale');
       for (const [key, row] of rows) {
         const info = pcMetricText(key, key === 'disk' && data.metrics?.drives ? data.metrics.drives : data.metrics?.[key]);
-        row.article.dataset.state = info.state; row.value.textContent = info.text; row.note.textContent = info.note;
+        row.article.dataset.state = info.state; row.value.textContent = info.text; row.note.textContent = info.note + (info.state === 'unavailable' ? ' 측정 시각: 확인 불가.' : ' 실측 기준 시각(서버 조회 완료): ' + new Date(measured).toLocaleString('ko-KR') + '. 값별 독립 측정 시각은 제공되지 않습니다.');
       }
       status.textContent = `이 PC 마지막 실측 · ${new Date(measured).toLocaleString('ko-KR')} · 보안 서버 연결 상태와 별도`;
     } catch {
