@@ -45,15 +45,24 @@ export function createStudentView({ api, onChange } = {}) {
     && ['Domain', 'Private', 'Public'].every(name => value.profiles.some(p => p.name === name && typeof p.enabled === 'boolean'));
   const driveRows = data => Array.isArray(data?.metrics?.drives?.volumes)
     ? data.metrics.drives.volumes.filter(value => typeof value?.id === 'string' && /^[A-Z]:$/.test(value.id)) : [];
+  const networkOk = value => value?.state === 'ok'
+    && Number.isSafeInteger(value.interfaceCount) && value.interfaceCount >= 0
+    && Number.isSafeInteger(value.ipv4Count) && value.ipv4Count >= 0;
+  const eventsOk = value => value?.state === 'ok'
+    && Number.isSafeInteger(value.warningCount) && value.warningCount >= 0
+    && Number.isSafeInteger(value.errorCount) && value.errorCount >= 0
+    && value.warningCount + value.errorCount <= 5000 && value.sampleLimit === 5000
+    && typeof value.truncated === 'boolean' && typeof value.since === 'string'
+    && /(?:Z|[+-]\d{2}:\d{2})$/.test(value.since) && Number.isFinite(Date.parse(value.since));
   const metricChecks = data => {
     const m = data.metrics;
     return [
       ['CPU', m.cpu?.state === 'ok' && percent(m.cpu.usagePercent)],
       ['메모리', memoryOk(m.memory)],
       ['드라이브', m.drives?.state === 'ok' && driveRows(data).length > 0 && driveRows(data).every(capacity)],
-      ['네트워크 구성', m.network?.state === 'ok' && Number.isSafeInteger(m.network.interfaceCount) && m.network.interfaceCount >= 0 && Number.isSafeInteger(m.network.ipv4Count) && m.network.ipv4Count >= 0],
+      ['네트워크 구성', networkOk(m.network)],
       ['방화벽 설정', profilesOk(m.firewall)],
-      ['Windows 기록', m.events?.state === 'ok' && Number.isSafeInteger(m.events.warningCount) && m.events.warningCount >= 0 && Number.isSafeInteger(m.events.errorCount) && m.events.errorCount >= 0 && m.events.warningCount + m.events.errorCount <= 5000],
+      ['Windows 기록', eventsOk(m.events) && Date.parse(m.events.since) <= Date.parse(data.measuredAt)],
     ];
   };
   const notify = focusKey => {
@@ -213,7 +222,59 @@ export function createStudentView({ api, onChange } = {}) {
     } catch { article.append(node('p', '그래프를 표시할 수 없습니다. 아래 실측 표를 확인하세요.')); }
     return article;
   }
-  function dashboard(existingStatus) {
+  function pcObservations(data) {
+    const section = node('section', undefined, 'card'); section.setAttribute('data-dashboard-pc-observations', 'true');
+    section.append(node('h4', 'PC 조회 결과 · 읽기 전용'), node('p', data ? 'PC 조회 응답 수신 · 항목별 확인 결과는 아래와 같습니다.' : 'PC 현재 조회 결과 확인 불가'));
+    const m = data?.metrics ?? {};
+    const show = (key, title, valid, lines, note) => {
+      const article = node('section'); article.setAttribute('data-dashboard-observation', key);
+      article.append(node('h5', title));
+      if (valid) {
+        for (const line of lines) article.append(node('p', line));
+        article.append(node('p', '실측 기준 시각(서버 조회 완료): ' + time(data.measuredAt)));
+      } else {
+        article.append(node('p', '확인 불가 · ' + (data ? reasonText(m[key]) : pc.status === 'idle' ? '아직 조회하지 않았습니다.' : pc.status === 'loading' ? '조회 중입니다.' : pc.message || '현재 실측이 없습니다.')),
+          node('p', '측정 시각: 확인 불가'));
+      }
+      article.append(node('p', note)); section.append(article);
+    };
+    show('network', '네트워크 구성', networkOk(m.network),
+      ['네트워크 인터페이스 ' + m.network?.interfaceCount + '개 · IPv4 구성 ' + m.network?.ipv4Count + '개'],
+      '로컬 구성 개수입니다. 인터넷 접속·SDP 연결·접근 허용을 확인한 결과가 아닙니다.');
+    show('firewall', 'Windows 방화벽 프로필', profilesOk(m.firewall),
+      profilesOk(m.firewall) ? ['Domain', 'Private', 'Public'].map(name => name + ': ' + (m.firewall.profiles.find(p => p.name === name).enabled ? '켜짐' : '꺼짐')) : [],
+      '설정은 읽기만 합니다. 방화벽·보안 설정을 바꾸거나 관리자 권한을 요청하지 않습니다. 켜짐은 전체 보호·안전 판정이 아닙니다.');
+    const eventValid = eventsOk(m.events) && data && Date.parse(m.events.since) <= Date.parse(data.measuredAt);
+    show('events', '최근 Windows 기록 · System·Application 합산', eventValid,
+      eventValid ? ['경고 ' + m.events.warningCount + '건 · 오류 ' + m.events.errorCount + '건',
+        '조회 범위: ' + time(m.events.since) + ' ~ ' + time(data.measuredAt) + ' · 최근 24시간 기준',
+        m.events.truncated ? '일부 집계 · 최대 5,000건으로 제한한 결과입니다. 전체 건수가 아닙니다.' : '최대 5,000건 범위에서 집계했습니다.'] : [],
+      'Windows 경고·오류 건수는 침해나 공격 탐지 결과가 아닙니다. 확인 불가를 0건으로 바꾸지 않으며, 0건도 안전을 보장하지 않습니다.');
+    section.append(node('p', '출처: 제공 PC 조회 기능(/api/pc/status). 값별 독립 측정 시각은 제공되지 않습니다.'));
+    return section;
+  }
+  function sdpConnection({devices, sessions, mode} = {}) {
+    const section = node('section', undefined, 'card'); section.setAttribute('data-dashboard-sdp', 'unknown');
+    section.append(node('h4', 'SDP 연결 상태 · PC 조회와 별도'));
+    const resources = [devices, sessions];
+    let state = 'unknown', label = 'SDP 연결 확인 불가', reason = '현재 기기·세션 조회 결과만으로 연결을 확인할 수 없습니다.';
+    if (resources.some(r => r?.status === 'loading')) {
+      state = 'loading'; label = 'SDP 연결 확인 중'; reason = '제공 화면의 현재 기기·세션 조회 결과를 기다립니다. 이전 결과를 현재 상태로 표시하지 않습니다.';
+    } else if (mode === 'demo' && resources.every(r => r?.mode === 'demo' && ['ok', 'error'].includes(r.status))) {
+      state = 'demo'; label = '예제 자료 · 실제 SDP 연결 미확인'; reason = '예제 기기·세션 응답은 실제 SDP 연결의 증거가 아닙니다.';
+    } else if (resources.some(r => r?.status === 'error' && r.error?.code === 'ENGINE_NOT_CONNECTED')
+        && resources.every(r => r && ['ok', 'error'].includes(r.status) && r.mode === 'disconnected')) {
+      state = 'disconnected'; label = 'SDP 미연결'; reason = '기기·세션 조회에서 서버가 ENGINE_NOT_CONNECTED를 반환했습니다. PC 조회 응답 수신과 별개입니다.';
+    } else if (mode === 'connected' && resources.every(r => r?.status === 'ok' && r.mode === 'connected' && Array.isArray(r.data))) {
+      state = 'connected'; label = 'SDP 조회 응답 수신(connected)'; reason = '제공 화면에서 현재 기기·세션 조회 응답을 받았습니다. 모든 업무 앱 접근 허용이나 지속 연결을 보장하지 않습니다.';
+    }
+    section.setAttribute('data-dashboard-sdp', state);
+    section.append(node('p', label), node('p', reason),
+      node('p', '판단 출처: 제공 화면의 기기·세션 조회 상태와 mode. PC 실측·방화벽 켜짐·AI 승인·진단 설정 정보로 SDP 연결을 대신 판단하지 않습니다.'),
+      node('p', 'SDP 확인 시각: 이 입력에는 제공되지 않습니다. PC 측정 시각을 대신 쓰지 않습니다.'));
+    return section;
+  }
+  function dashboard(existingStatus, sdp) {
     const root = node('div'); root.setAttribute('data-student-dashboard', 'pc-monitor');
     root.append(node('h3', '케셰브 · 내 PC 관제'), node('p', '실측은 이 PC에서 읽은 값입니다. 예시는 별도 영역에만 표시합니다. 이 화면은 보안 차단·안전 인증이 아닙니다.', 'muted'));
     root.append(node('p', '제공 기능: 내 PC 상태 조회(/api/pc/status). 학생 추가: 네 카드·추이·직전 실측 비교·조회 기록. 측정 기능을 새로 만들거나 관리자 권한을 요청하지 않습니다.', 'muted'));
@@ -250,15 +311,12 @@ export function createStudentView({ api, onChange } = {}) {
     firstPair.append(card('cpu', 'CPU', cpu, '짧은 200ms 구간의 실측'), card('memory', '메모리', memory, '현재 PC 전체 메모리'));
     secondPair.append(card('disk', '드라이브 여유', diskValue, diskNote), card('firewall', '방화벽 설정', firewall, '설정 관찰이며 전체 보호·안전 판정이 아닙니다.'));
     cards.append(firstPair, secondPair); root.append(cards);
+    const observations = node('div', undefined, 'grid-2'); observations.append(pcObservations(data), sdpConnection(sdp)); root.append(observations);
     const driveDetail = details('drives', '드라이브별 용량 · 범위와 확인 불가');
     if (drives.length) {
       const list = node('ul'); for (const drive of drives) list.append(node('li', drive.id + ' · ' + (capacity(drive) ? gib(drive.freeBytes) + ' 여유 / ' + gib(drive.totalBytes) + ' · 실측 기준 시각(서버 조회 완료): ' + time(data.measuredAt) : '확인 불가 · ' + reasonText(drive) + ' · 측정 시각 확인 불가 (0으로 합산하지 않음)'))); driveDetail.append(list);
     } else driveDetail.append(node('p', data ? '전체 드라이브 목록 확인 불가 또는 조회 대상 없음' : '아직 현재 실측 목록이 없습니다.'));
     driveDetail.append(node('p', '문자가 있는 고정 로컬 볼륨만 조회합니다. 이동식·네트워크·문자 없는 볼륨은 합계에서 제외합니다. 1 GiB = 1024³ bytes.'));
-    if (fresh) {
-      driveDetail.append(node('p', m.network?.state === 'ok' ? '네트워크 구성: 인터페이스 ' + m.network.interfaceCount + '개. 인터넷·ZTNA 연결 성공을 뜻하지 않습니다.' + ' · 실측 기준 시각(서버 조회 완료): ' + time(data.measuredAt) : '네트워크 구성: 확인 불가 · ' + reasonText(m.network)));
-      driveDetail.append(node('p', m.events?.state === 'ok' ? 'Windows 기록: 경고 ' + m.events.warningCount + '건 · 오류 ' + m.events.errorCount + '건' + (m.events.truncated ? ' (최대 5,000건 일부 집계)' : '') + ' · 실측 기준 시각(서버 조회 완료): ' + time(data.measuredAt) : 'Windows 기록: 확인 불가 · ' + reasonText(m.events) + ' 기록 0건이나 이상 없음으로 표시하지 않습니다.'));
-    }
     root.append(driveDetail);
     const trends = node('div', undefined, 'grid-2'); trends.append(drawTrend(pc.samples, 'cpu', 'CPU'), drawTrend(pc.samples, 'memory', '메모리')); root.append(trends);
     root.append(node('p', '이 페이지에서 받은 실측만 최근 120회까지 유지합니다. 새로고침하면 지워집니다. 미측정 구간·예시를 추이에 채우지 않습니다.', 'muted'));
@@ -721,7 +779,7 @@ export function createStudentView({ api, onChange } = {}) {
         }
       });
       root.append(copy, copyStatus);
-      return dashboard(root);
+      return dashboard(root, {devices, sessions, mode});
     },
     renderVulnerabilities({ status, mode, data, error } = {}) {
       const root = document.createElement('div');
