@@ -25,6 +25,25 @@ try {
   })
   $result.firewall = @{ state = 'ok'; profiles = $profiles }
 } catch { $result.firewall = @{ state = 'unavailable'; reason = (Read-FailureReason $_) } }
+# Fixed local volumes only; private volume IDs are used only for deduplication.
+try {
+  $seenVolumes = @{}
+  $drives = @()
+  foreach ($volume in @(Get-CimInstance -ClassName Win32_Volume -Filter 'DriveType=3 AND DriveLetter IS NOT NULL' -ErrorAction Stop)) {
+    $letter = ([string]$volume.DriveLetter).ToUpperInvariant()
+    if ($letter -cnotmatch '^[A-Z]:$') { continue }
+    $identity = [string]$volume.DeviceID
+    if ([string]::IsNullOrWhiteSpace($identity)) { throw 'Volume identity unavailable' }
+    if ($seenVolumes.ContainsKey($identity)) { continue }
+    $seenVolumes[$identity] = $true
+    if ($null -eq $volume.Capacity -or $null -eq $volume.FreeSpace) {
+      $drives += @{ id = $letter; state = 'unavailable'; reason = 'query_failed' }
+    } else {
+      $drives += @{ id = $letter; state = 'ok'; totalBytes = [double]$volume.Capacity; freeBytes = [double]$volume.FreeSpace }
+    }
+  }
+  $result.drives = @{ state = 'ok'; scope = 'fixed_local_lettered_volumes'; volumes = @($drives | Sort-Object -Property id) }
+} catch { $result.drives = @{ state = 'unavailable'; reason = (Read-FailureReason $_) } }
 $since = (Get-Date).AddHours(-24)
 try {
   $events = @()
@@ -58,8 +77,29 @@ export function cpuUsage(before, after) {
   if (!a || !b || b.total <= a.total || b.idle < a.idle || b.idle - a.idle > b.total - a.total) return missing('invalid_sample');
   return {state: 'ok', usagePercent: Math.round(1000 * (1 - (b.idle - a.idle) / (b.total - a.total))) / 10};
 }
+export function normalizeDrives(raw) {
+  const reasons = new Set(['permission_denied', 'query_failed', 'timeout', 'unsupported', 'cancelled']);
+  if (raw?.state === 'unavailable') return missing(reasons.has(raw.reason) ? raw.reason : 'query_failed');
+  if (raw?.state !== 'ok' || raw.scope !== 'fixed_local_lettered_volumes' || !Array.isArray(raw.volumes) || raw.volumes.length > 26) return missing('invalid_response');
+  const seen = new Set(), volumes = [];
+  for (const value of raw.volumes) {
+    if (typeof value?.id !== 'string' || !/^[A-Z]:$/.test(value.id) || seen.has(value.id)) return missing('invalid_response');
+    seen.add(value.id);
+    const valid = value.state === 'ok' && Number.isSafeInteger(value.totalBytes) && value.totalBytes > 0
+      && Number.isSafeInteger(value.freeBytes) && value.freeBytes >= 0 && value.freeBytes <= value.totalBytes;
+    volumes.push(valid ? {id: value.id, state: 'ok', totalBytes: value.totalBytes, freeBytes: value.freeBytes}
+      : {id: value.id, ...missing(value.state === 'unavailable' && reasons.has(value.reason) ? value.reason : 'invalid_response')});
+  }
+  volumes.sort((a, b) => a.id.localeCompare(b.id));
+  const known = volumes.filter(value => value.state === 'ok');
+  const totalBytes = known.reduce((sum, value) => sum + value.totalBytes, 0), freeBytes = known.reduce((sum, value) => sum + value.freeBytes, 0);
+  if (!Number.isSafeInteger(totalBytes) || !Number.isSafeInteger(freeBytes)) return missing('invalid_response');
+  return {state: known.length === volumes.length ? 'ok' : 'partial', scope: 'fixed_local_lettered_volumes', volumes,
+    ...(known.length ? {totalBytes, freeBytes} : {}), measuredCount: known.length, unavailableCount: volumes.length - known.length};
+}
+
 export function normalizeWindowsStatus(raw) {
-  const result = {firewall: missing('invalid_response'), events: missing('invalid_response')};
+  const result = {firewall: missing('invalid_response'), events: missing('invalid_response'), drives: normalizeDrives(raw?.drives)};
   if (raw?.firewall?.state === 'unavailable') result.firewall = missing(raw.firewall.reason === 'permission_denied' ? 'permission_denied' : 'query_failed');
   const profiles = raw?.firewall?.profiles;
   if (raw?.firewall?.state === 'ok' && Array.isArray(profiles) && profiles.length === 3 && ['Domain', 'Private', 'Public'].every(name => profiles.some(p => p.name === name && typeof p.enabled === 'boolean'))) {
@@ -95,14 +135,14 @@ export function createPcStatusReader({system = os, disk = statfs, run = execute,
       catch {metrics.disk = missing('query_failed');}
     })();
     const windows = (async () => {
-      if (platform !== 'win32') {metrics.firewall = missing('unsupported'); metrics.events = missing('unsupported'); return;}
+      if (platform !== 'win32') {metrics.firewall = missing('unsupported'); metrics.events = missing('unsupported'); metrics.drives = missing('unsupported'); return;}
       try {
         const exe = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
         const {stdout} = await run(exe, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', WINDOWS_READ], {windowsHide: true, encoding: 'utf8', timeout: 8000, maxBuffer: 128 * 1024, signal});
         Object.assign(metrics, normalizeWindowsStatus(JSON.parse(stdout.trim())));
       } catch (error) {
         const reason = signal?.aborted ? 'cancelled' : error?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? 'query_failed' : error?.killed || error?.code === 'ETIMEDOUT' ? 'timeout' : 'query_failed';
-        metrics.firewall = missing(reason); metrics.events = missing(reason);
+        metrics.firewall = missing(reason); metrics.events = missing(reason); metrics.drives = missing(reason);
       }
     })();
     await Promise.all([cpu, drive, windows]); signal?.throwIfAborted();

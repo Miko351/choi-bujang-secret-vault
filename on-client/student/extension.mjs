@@ -1,6 +1,202 @@
 // 이 파일은 학생이 같은 프로젝트에서 이어서 구현합니다.
 // 제공 UI를 받은 것만으로 단계 완료를 인정하지 않습니다.
-export function createStudentView() {
+export function createStudentView({ api, onChange } = {}) {
+  // 관제 데이터는 이 페이지의 메모리에만 둔다. 기존 인증·판정 입력과 합치지 않는다.
+  const pc = {status: 'idle', data: null, message: '', auto: false, example: false, filter: 'all', history: [], samples: []};
+  let pcGeneration = 0, pcTimer = null, pcDeadline = null, pcStaleTimer = null, disposed = false;
+  const opened = new Map();
+  const node = (tag, text, className) => {
+    const element = document.createElement(tag);
+    if (text !== undefined) element.textContent = text;
+    if (className) element.className = className;
+    return element;
+  };
+  const number = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  const percent = value => number(value) && value <= 100;
+  const capacity = value => value?.state === 'ok' && number(value.totalBytes) && value.totalBytes > 0
+    && number(value.freeBytes) && value.freeBytes <= value.totalBytes;
+  const memoryOk = value => value?.state === 'ok' && number(value.totalBytes) && value.totalBytes > 0
+    && number(value.usedBytes) && value.usedBytes <= value.totalBytes;
+  const gib = value => (value / 1024 ** 3).toFixed(1) + ' GiB';
+  const time = value => new Date(value).toLocaleString('ko-KR');
+  const profilesOk = value => value?.state === 'ok' && Array.isArray(value.profiles) && value.profiles.length === 3
+    && ['Domain', 'Private', 'Public'].every(name => value.profiles.some(p => p.name === name && typeof p.enabled === 'boolean'));
+  const driveRows = data => Array.isArray(data?.metrics?.drives?.volumes)
+    ? data.metrics.drives.volumes.filter(value => typeof value?.id === 'string' && /^[A-Z]:$/.test(value.id)) : [];
+  const metricChecks = data => {
+    const m = data.metrics;
+    return [
+      ['CPU', m.cpu?.state === 'ok' && percent(m.cpu.usagePercent)],
+      ['메모리', memoryOk(m.memory)],
+      ['드라이브', m.drives?.state === 'ok' && driveRows(data).length > 0 && driveRows(data).every(capacity)],
+      ['네트워크 구성', m.network?.state === 'ok' && Number.isSafeInteger(m.network.interfaceCount) && m.network.interfaceCount >= 0 && Number.isSafeInteger(m.network.ipv4Count) && m.network.ipv4Count >= 0],
+      ['방화벽 설정', profilesOk(m.firewall)],
+      ['Windows 기록', m.events?.state === 'ok' && Number.isSafeInteger(m.events.warningCount) && m.events.warningCount >= 0 && Number.isSafeInteger(m.events.errorCount) && m.events.errorCount >= 0 && m.events.warningCount + m.events.errorCount <= 5000],
+    ];
+  };
+  const notify = focusKey => {
+    if (disposed) return;
+    if (typeof onChange === 'function') onChange();
+    if (focusKey && typeof queueMicrotask === 'function') queueMicrotask(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body && active.isConnected) return;
+      document.querySelector?.('[data-dashboard-control="' + focusKey + '"]')?.focus();
+    });
+  };
+  const stopTimer = () => { if (pcTimer !== null) clearTimeout(pcTimer); pcTimer = null; };
+  const schedule = () => {
+    stopTimer();
+    if (!disposed && pc.auto && !document.hidden) pcTimer = setTimeout(() => { void readPc(); }, 10000);
+  };
+  const remember = row => { pc.history.unshift(row); pc.history.length = Math.min(pc.history.length, 100); };
+  async function readPc() {
+    if (disposed || pc.status === 'loading' || document.hidden) return;
+    stopTimer(); clearTimeout(pcStaleTimer);
+    const generation = ++pcGeneration;
+    pc.status = 'loading'; pc.message = '이 PC에서 읽는 중입니다.'; pc.data = null; notify();
+    const fail = message => {
+      pc.status = 'error'; pc.data = null; pc.message = message;
+      remember({kind: 'failed', at: new Date().toISOString(), summary: message, detail: '조회에 실패했습니다. 이 기록은 침해 사고 판정이 아닙니다.'});
+      notify(); schedule();
+    };
+    pcDeadline = setTimeout(() => {
+      if (generation !== pcGeneration || disposed) return;
+      ++pcGeneration; fail('조회 시간이 초과됐습니다. 직접 다시 조회하세요.');
+    }, 12000);
+    try {
+      if (typeof api?.get !== 'function') throw Error('unavailable');
+      const response = await api.get('/api/pc/status');
+      if (generation !== pcGeneration || disposed) return;
+      clearTimeout(pcDeadline);
+      const data = response?.ok === true ? response.data : null;
+      const at = typeof data?.measuredAt === 'string' && /(?:Z|[+-]\d{2}:\d{2})$/.test(data.measuredAt) ? Date.parse(data.measuredAt) : NaN;
+      if (data?.schema !== 'aleph.on.pc-status.v1' || data.source !== 'local-pc' || !Number.isFinite(at)
+          || Date.now() - at > 60000 || at - Date.now() > 5000 || !data.metrics || typeof data.metrics !== 'object') throw Error('unverified');
+      pc.data = structuredClone(data); pc.status = 'ok'; pc.message = '';
+      const checks = metricChecks(pc.data), missing = checks.filter(([, ok]) => !ok).map(([label]) => label);
+      const m = pc.data.metrics;
+      const cpu = m.cpu?.state === 'ok' && percent(m.cpu.usagePercent) ? m.cpu.usagePercent : null;
+      const memory = memoryOk(m.memory) ? m.memory.usedBytes / m.memory.totalBytes * 100 : null;
+      if (!pc.samples.some(sample => sample.at === data.measuredAt)) {
+        pc.samples.push({at: data.measuredAt, cpu, memory});
+        if (pc.samples.length > 120) pc.samples.shift();
+      }
+      remember({kind: missing.length ? 'partial' : 'measured', at: data.measuredAt,
+        summary: '실측 ' + (checks.length - missing.length) + '/' + checks.length + '항목 · 확인 불가 ' + missing.length + '항목',
+        detail: '출처: 이 PC(local-pc). ' + (missing.length ? '확인 불가: ' + missing.join(', ') + '.' : '이번 조회의 여섯 항목을 읽었습니다.')
+          + ' CPU ' + (cpu === null ? '확인 불가' : cpu.toFixed(1) + '%') + ', 메모리 ' + (memory === null ? '확인 불가' : memory.toFixed(1) + '%')
+          + '. Windows 기록의 값이나 건수만으로 침해·안전을 판정하지 않습니다.'});
+      pcStaleTimer = setTimeout(() => { if (pc.status === 'ok') { pc.status = 'stale'; pc.message = '마지막 실측이 60초를 지났습니다. 현재 상태는 다시 확인하세요.'; notify(); } }, Math.max(1, at + 60001 - Date.now()));
+      notify(); schedule();
+    } catch {
+      if (generation !== pcGeneration || disposed) return;
+      clearTimeout(pcDeadline); fail('현재 PC 조회를 확인할 수 없습니다. 이전 값을 현재 상태로 표시하지 않습니다.');
+    }
+  }
+  if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      stopTimer();
+      if (pc.status === 'loading') { ++pcGeneration; clearTimeout(pcDeadline); pc.status = 'error'; pc.message = '화면을 보지 않는 동안 조회 표시를 중단했습니다. 다시 조회하세요.'; pc.data = null; }
+    } else if (pc.auto) { void readPc(); }
+  });
+  if (typeof globalThis.addEventListener === 'function') globalThis.addEventListener('pagehide', () => {
+    disposed = true; ++pcGeneration; stopTimer(); clearTimeout(pcDeadline); clearTimeout(pcStaleTimer);
+  }, {once: true});
+  const button = (label, key, action) => {
+    const control = node('button', label, 'btn'); control.type = 'button'; control.setAttribute('data-dashboard-control', key);
+    control.addEventListener('click', action); return control;
+  };
+  const details = (key, label) => {
+    const section = node('details'); section.open = opened.get(key) === true; section.append(node('summary', label));
+    section.addEventListener('toggle', () => opened.set(key, section.open)); return section;
+  };
+  function drawTrend(samples, key, title) {
+    const article = node('section', undefined, 'card'); article.append(node('h4', title + ' · 실측 추이'));
+    if (!samples.length) { article.append(node('p', '수집한 실측 표본이 없습니다. 과거 구간을 예시 값으로 채우지 않습니다.')); return article; }
+    const canvas = node('canvas'); canvas.width = 260; canvas.height = 140;
+    canvas.setAttribute('role', 'img'); canvas.setAttribute('aria-label', title + ' 실측 추이. 아래 표에서 시각별 값을 확인할 수 있습니다.');
+    article.append(canvas, node('p', '0~100% · ' + time(samples[0].at) + ' ~ ' + time(samples[samples.length - 1].at)));
+    try {
+      const context = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+      if (context) {
+        context.clearRect(0, 0, 260, 140); context.strokeStyle = '#d9dde3'; context.beginPath(); context.moveTo(24, 8); context.lineTo(24, 116); context.lineTo(250, 116); context.stroke();
+        context.fillStyle = '#5a6472'; context.fillText('100%', 0, 10); context.fillText('0%', 4, 128);
+        let started = false;
+        context.strokeStyle = key === 'cpu' ? '#2357c6' : '#6b3fb3'; context.lineWidth = 2; context.beginPath();
+        samples.forEach((sample, i) => {
+          if (!percent(sample[key])) { started = false; return; }
+          const x = 26 + i * 220 / Math.max(1, samples.length - 1), y = 114 - sample[key] / 100 * 104;
+          if (started) context.lineTo(x, y); else context.moveTo(x, y); started = true;
+        }); context.stroke();
+        samples.forEach((sample, i) => { if (percent(sample[key])) { context.beginPath(); context.arc(26 + i * 220 / Math.max(1, samples.length - 1), 114 - sample[key] / 100 * 104, 2, 0, Math.PI * 2); context.fillStyle = key === 'cpu' ? '#2357c6' : '#6b3fb3'; context.fill(); } });
+      }
+    } catch { article.append(node('p', '그래프를 표시할 수 없습니다. 아래 실측 표를 확인하세요.')); }
+    return article;
+  }
+  function dashboard(existingStatus) {
+    const root = node('div'); root.setAttribute('data-student-dashboard', 'pc-monitor');
+    root.append(node('h3', '케셰브 · 내 PC 관제'), node('p', '실측은 이 PC에서 읽은 값입니다. 예시는 별도 영역에만 표시합니다. 이 화면은 보안 차단·안전 인증이 아닙니다.', 'muted'));
+    const controls = node('div');
+    const refresh = button('학생 PC 실측 조회', 'refresh', () => { void readPc(); }); refresh.disabled = pc.status === 'loading';
+    const autoLabel = node('label'), auto = node('input'); auto.type = 'checkbox'; auto.checked = pc.auto; auto.setAttribute('data-dashboard-control', 'auto');
+    auto.addEventListener('change', () => { pc.auto = auto.checked; if (pc.auto) void readPc(); else stopTimer(); notify('auto'); }); autoLabel.append(auto, node('span', '10초마다 실측 (보이는 동안)'));
+    const exampleLabel = node('label'), example = node('input'); example.type = 'checkbox'; example.checked = pc.example; example.setAttribute('data-dashboard-control', 'example');
+    example.addEventListener('change', () => { pc.example = example.checked; notify('example'); }); exampleLabel.append(example, node('span', '설명용 예시 보기 (실측과 별도)'));
+    controls.append(refresh, autoLabel, exampleLabel); root.append(controls);
+    const fresh = pc.status === 'ok' && pc.data && Date.now() - Date.parse(pc.data.measuredAt) <= 60000;
+    const data = fresh ? pc.data : null, m = data?.metrics ?? {};
+    const status = node('p', pc.status === 'loading' ? '조회 중 · 이전 값은 현재 상태로 표시하지 않습니다.' : pc.status === 'idle' ? '미조회 · 실측 조회 버튼을 누르세요.' : fresh ? '실측 · ' + time(data.measuredAt) : pc.message || '오래된 실측 · 현재 상태 확인 불가');
+    status.setAttribute('role', 'status'); root.append(status);
+    const cards = node('div', undefined, 'grid-2'), firstPair = node('div', undefined, 'grid-2'), secondPair = node('div', undefined, 'grid-2');
+    const card = (key, title, value, note) => {
+      const item = node('article', undefined, 'card'); item.setAttribute('data-dashboard-metric', key);
+      item.append(node('h4', title), node('p', value), node('p', note, 'muted')); return item;
+    };
+    const cpu = m.cpu?.state === 'ok' && percent(m.cpu.usagePercent) ? m.cpu.usagePercent.toFixed(1) + '%' : '확인 불가';
+    const memory = memoryOk(m.memory) ? (m.memory.usedBytes / m.memory.totalBytes * 100).toFixed(1) + '% · ' + gib(m.memory.usedBytes) + ' / ' + gib(m.memory.totalBytes) : '확인 불가';
+    const drives = data ? driveRows(data) : [], known = drives.filter(capacity), unknownCount = drives.length - known.length;
+    const free = known.reduce((sum, value) => sum + value.freeBytes, 0), total = known.reduce((sum, value) => sum + value.totalBytes, 0);
+    let diskValue = known.length ? gib(free) + ' 여유 / ' + gib(total) : '확인 불가';
+    let diskNote = known.length ? '확인된 ' + known.length + '개 고정 로컬 볼륨 합계' + (unknownCount ? '(일부) · 확인 불가 ' + unknownCount + '개' : '') : '드라이브별 조회 결과를 확인하세요.';
+    if (data && !m.drives && capacity(m.disk)) { diskValue = gib(m.disk.freeBytes) + ' 여유 / ' + gib(m.disk.totalBytes); diskNote = '이전 서버 응답: 앱이 있는 볼륨만 실측했습니다. 여러 드라이브 조회에는 서버 재실행이 필요합니다.'; }
+    const firewall = profilesOk(m.firewall) ? m.firewall.profiles.filter(p => p.enabled).length + '/3 프로필 켜짐' : '확인 불가';
+    firstPair.append(card('cpu', 'CPU', cpu, '짧은 200ms 구간의 실측'), card('memory', '메모리', memory, '현재 PC 전체 메모리'));
+    secondPair.append(card('disk', '드라이브 여유', diskValue, diskNote), card('firewall', '방화벽 설정', firewall, '설정 관찰이며 전체 보호·안전 판정이 아닙니다.'));
+    cards.append(firstPair, secondPair); root.append(cards);
+    const driveDetail = details('drives', '드라이브별 용량 · 범위와 확인 불가');
+    if (drives.length) {
+      const list = node('ul'); for (const drive of drives) list.append(node('li', drive.id + ' · ' + (capacity(drive) ? gib(drive.freeBytes) + ' 여유 / ' + gib(drive.totalBytes) : '확인 불가 (0으로 합산하지 않음)'))); driveDetail.append(list);
+    } else driveDetail.append(node('p', data ? '전체 드라이브 목록 확인 불가 또는 조회 대상 없음' : '아직 현재 실측 목록이 없습니다.'));
+    driveDetail.append(node('p', '문자가 있는 고정 로컬 볼륨만 조회합니다. 이동식·네트워크·문자 없는 볼륨은 합계에서 제외합니다. 1 GiB = 1024³ bytes.'));
+    if (fresh) {
+      driveDetail.append(node('p', m.network?.state === 'ok' ? '네트워크 구성: 인터페이스 ' + m.network.interfaceCount + '개. 인터넷·ZTNA 연결 성공을 뜻하지 않습니다.' : '네트워크 구성: 확인 불가'));
+      driveDetail.append(node('p', m.events?.state === 'ok' ? 'Windows 기록: 경고 ' + m.events.warningCount + '건 · 오류 ' + m.events.errorCount + '건' + (m.events.truncated ? ' (최대 5,000건 일부 집계)' : '') : 'Windows 기록: 확인 불가. 기록 0건이나 이상 없음으로 표시하지 않습니다.'));
+    }
+    root.append(driveDetail);
+    const trends = node('div', undefined, 'grid-2'); trends.append(drawTrend(pc.samples, 'cpu', 'CPU'), drawTrend(pc.samples, 'memory', '메모리')); root.append(trends);
+    root.append(node('p', '이 페이지에서 받은 실측만 최근 120회까지 유지합니다. 새로고침하면 지워집니다. 미측정 구간·예시를 추이에 채우지 않습니다.', 'muted'));
+    const sampleTable = details('samples', '시각별 실측 표');
+    const sampleList = node('ul');
+    for (const sample of pc.samples) sampleList.append(node('li', time(sample.at) + ' · CPU ' + (sample.cpu === null ? '확인 불가' : sample.cpu.toFixed(1) + '%') + ' · 메모리 ' + (sample.memory === null ? '확인 불가' : sample.memory.toFixed(1) + '%')));
+    sampleTable.append(sampleList); root.append(sampleTable);
+    const history = node('section'); history.append(node('h4', '이 앱의 조회 기록 · 실제 XDR 경보와 별도'));
+    const filterLabel = node('label', '조회 기록 필터'), filter = node('select'); filter.setAttribute('aria-label', '조회 기록 필터'); filter.setAttribute('data-dashboard-control', 'filter');
+    for (const [value, label] of [['all', '전체'], ['measured', '실측 확인'], ['partial', '일부 확인 불가'], ['failed', '조회 실패']]) { const option = node('option', label); option.value = value; filter.append(option); } filter.value = pc.filter;
+    filter.addEventListener('change', () => { pc.filter = filter.value; notify('filter'); }); filterLabel.append(filter); history.append(filterLabel);
+    const shown = pc.history.filter(row => pc.filter === 'all' || row.kind === pc.filter);
+    history.append(node('p', '표시 ' + shown.length + '건 / 이번 페이지의 조회 기록 ' + pc.history.length + '건 (최근 100건)'));
+    if (!shown.length) history.append(node('p', '표시할 조회 기록이 없습니다. 실제 보안 사건이 없다는 뜻은 아닙니다.'));
+    for (const row of shown) { const item = node('details'); item.append(node('summary', time(row.at) + ' · ' + row.summary), node('p', row.detail)); history.append(item); }
+    root.append(history);
+    if (pc.example) {
+      const examples = node('section', undefined, 'card'); examples.setAttribute('data-dashboard-example', 'true');
+      examples.append(node('h4', '예시 · 설명용 고정 값 (실제 조회 결과 아님)'), node('p', '예: CPU 25.0%, 메모리 40.0%, C: 여유 100 GiB, D: 여유 200 GiB. 화면 설명용 값이며 실제 카드·추이·기록·합계에 넣지 않습니다.'));
+      root.append(examples);
+    }
+    const prior = details('prior-status', '기존 기기·세션·알림·진단 정보'); prior.append(existingStatus); root.append(prior);
+    return root;
+  }
+
   return {
     renderIdentity({ me, devices, sessions } = {}) {
       const root = document.createElement('div');
@@ -438,7 +634,7 @@ export function createStudentView() {
         }
       });
       root.append(copy, copyStatus);
-      return root;
+      return dashboard(root);
     },
     renderVulnerabilities({ status, mode, data, error } = {}) {
       const root = document.createElement('div');

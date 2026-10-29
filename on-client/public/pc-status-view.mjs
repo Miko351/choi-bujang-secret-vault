@@ -4,12 +4,22 @@ const REASONS = {
   unsupported: '이 운영체제에서는 이 항목을 조회하지 않습니다.',
   timeout: '조회 시간이 초과됐습니다. 잠시 후 다시 확인하세요.',
 };
-const bytes = n => `${(n / 1024 ** 3).toFixed(1)} GB`;
+const bytes = n => `${(n / 1024 ** 3).toFixed(1)} GiB`;
 const number = n => typeof n === 'number' && Number.isFinite(n) && n >= 0;
 const percent = n => number(n) && n <= 100;
 const counter = n => Number.isSafeInteger(n) && n >= 0;
 
 export function pcMetricText(key, metric) {
+  if (key === 'disk' && metric?.scope === 'fixed_local_lettered_volumes' && ['ok', 'partial'].includes(metric.state) && Array.isArray(metric.volumes)) {
+    const rows = metric.volumes.filter(value => typeof value?.id === 'string' && /^[A-Z]:$/.test(value.id));
+    const valid = value => value.state === 'ok' && number(value.totalBytes) && value.totalBytes > 0 && number(value.freeBytes) && value.freeBytes <= value.totalBytes;
+    const known = rows.filter(valid), unknown = rows.length - known.length;
+    if (!rows.length) return {text: '표시할 고정 로컬 드라이브 없음', note: '드라이브 문자가 있는 고정 로컬 볼륨만 조회합니다.', state: 'unavailable'};
+    if (!known.length) return {text: rows.map(value => value.id + ' 확인 불가').join(' · '), note: '확인하지 못한 용량을 0으로 계산하지 않습니다.', state: 'unavailable'};
+    const total = known.reduce((sum, value) => sum + value.totalBytes, 0), free = known.reduce((sum, value) => sum + value.freeBytes, 0);
+    return {text: rows.map(value => valid(value) ? value.id + ' ' + bytes(value.freeBytes) + ' 여유 / ' + bytes(value.totalBytes) : value.id + ' 확인 불가').join(' · '),
+      note: (unknown ? '확인된 ' + known.length + '개 볼륨 합계(일부)' : '고정 로컬 볼륨 합계') + ': ' + bytes(free) + ' 여유 / ' + bytes(total) + '. 네트워크·이동식·문자 없는 볼륨은 제외합니다.', state: unknown ? 'partial' : 'measured'};
+  }
   if (metric?.state !== 'ok') return {text: '확인 불가', note: REASONS[metric?.reason] ?? '이번 조회에서 값을 확인하지 못했습니다. 다시 확인해 주세요.', state: 'unavailable'};
   let text, note;
   if (key === 'cpu' && percent(metric.usagePercent)) {
@@ -65,7 +75,7 @@ export function mountPcStatus(host, {fetchImpl = globalThis.fetch?.bind(globalTh
       const measured = typeof data?.measuredAt === 'string' && /(?:Z|[+-]\d{2}:\d{2})$/.test(data.measuredAt) ? Date.parse(data.measuredAt) : NaN;
       if (data?.schema !== 'aleph.on.pc-status.v1' || data.source !== 'local-pc' || !Number.isFinite(measured) || Math.abs(Date.now() - measured) > 60000) throw Error('stale');
       for (const [key, row] of rows) {
-        const info = pcMetricText(key, data.metrics?.[key]);
+        const info = pcMetricText(key, key === 'disk' && data.metrics?.drives ? data.metrics.drives : data.metrics?.[key]);
         row.article.dataset.state = info.state; row.value.textContent = info.text; row.note.textContent = info.note;
       }
       status.textContent = `이 PC 마지막 실측 · ${new Date(measured).toLocaleString('ko-KR')} · 보안 서버 연결 상태와 별도`;
