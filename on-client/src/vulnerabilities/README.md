@@ -1,12 +1,12 @@
 # npm 설치 버전과 OSV 정보 대조
 
-이 모듈은 학생이 실제로 설치한 공개 npm 패키지의 정확한 버전을 OSV 데이터와 대조합니다. 설치·업데이트·삭제·원격 코드 실행은 수행하지 않습니다. 조회 결과는 알려진 취약점 정보이며 실제 침해나 제품 전체의 안전성을 판정하지 않습니다.
+이 모듈은 프로젝트에 실제로 설치된 공개 npm 패키지의 정확한 버전을 OSV 데이터와 대조합니다. 설치·업데이트·삭제·원격 코드 실행은 수행하지 않습니다. 조회 결과는 알려진 취약점 정보이며 실제 침해나 제품 전체의 안전성을 판정하지 않습니다.
 
-2026-10-12 현재 구현과 검증은 fixture와 독립 localhost HTTP 서버에 한정됩니다. 실제 OSV 외부 호출, 실제 학생 프로젝트 검사, 서버·UI 통합, 운영 배포는 **NOT_RUN**입니다. 테스트에 등장하는 패키지명·버전·취약점 ID는 가상 자료이며 특정 라이브러리의 실제 취약 여부나 권장 사항이 아닙니다.
+2026-10-12 현재 구현과 검증은 fixture와 독립 localhost HTTP 서버에 한정됩니다. 실제 OSV 외부 호출, 실제 프로젝트 검사, 서버·UI 통합, 운영 배포는 **NOT_RUN**입니다. 테스트에 등장하는 패키지명·버전·취약점 ID는 가상 자료이며 특정 라이브러리의 실제 취약 여부나 권장 사항이 아닙니다.
 
 ## 공식 조회 계약
 
-고정 기본 주소는 `https://api.osv.dev/v1/querybatch`입니다. 공식 계약은 [OSV POST /v1/querybatch](https://google.github.io/osv.dev/post-v1-querybatch/)와 [OSV POST /v1/query](https://google.github.io/osv.dev/post-v1-query/)를 기준으로 합니다. 문서의 파라미터와 페이지 처리 방식은 root가 2026-10-12에 확인했으며, 이 구현 작업에서는 외부 요청을 실행하지 않았습니다.
+고정 기본 주소는 `https://api.osv.dev/v1/querybatch`입니다. 공식 계약은 [OSV POST /v1/querybatch](https://google.github.io/osv.dev/post-v1-querybatch/)와 [OSV POST /v1/query](https://google.github.io/osv.dev/post-v1-query/)를 기준으로 합니다. 문서의 파라미터와 페이지 처리 방식은 2026-10-12에 확인했으며, 이 구현 작업에서는 외부 요청을 실행하지 않았습니다.
 
 `queries`의 각 항목에는 `package: { name, ecosystem: 'npm' }`와 정확한 `version`을 넣습니다. 반환 `results`는 조회 입력 순서와 같고, 각 결과의 `vulns`는 `{ id, modified }` 요약 목록입니다. `next_page_token`이 있으면 해당 패키지만 다음 조회에 `page_token`을 넣습니다. 이미 마지막 페이지까지 확인한 패키지는 다시 보내지 않습니다. 원격 리다이렉트를 따르지 않습니다.
 
@@ -73,7 +73,7 @@ const sameResults = await lookupPackages(queries, { signal });
 
 취약점이 발견된 페이지 이후 5xx나 timeout이 발생하면 `unverifiable`과 이전 요약을 함께 반환합니다. 결과 길이 불일치, 잘못된 JSON·필드·ID·시각, 반복 cursor, 응답 크기 초과, 페이지 한도 초과도 안전이나 정상으로 표시하지 않습니다. 먼저 완료한 다른 패키지 결과는 이후 오류로 바꾸지 않습니다. 같은 취약점 ID의 반복은 중복을 제거하고 더 최신 `modified`를 보존합니다.
 
-제한 시간은 모든 페이지를 합친 전체 조회에 적용됩니다. `fetchImpl`이 signal을 무시해도 호출자는 제한 시간 또는 취소 시점에 반환받습니다. 늦은 응답으로 다음 페이지를 요청하지 않으며 종료 시 timer와 외부 abort listener를 정리합니다. 기본 자동 재시도는 0회입니다. `page_token`에 따른 연속 조회는 필요한 페이지 처리이며 일반 실패 재시도가 아닙니다. `maxPages`는 모듈의 기술적 한도이며 학생 점수나 진도 제한이 아닙니다.
+제한 시간은 모든 페이지를 합친 전체 조회에 적용됩니다. `fetchImpl`이 signal을 무시해도 호출자는 제한 시간 또는 취소 시점에 반환받습니다. 늦은 응답으로 다음 페이지를 요청하지 않으며 종료 시 timer와 외부 abort listener를 정리합니다. 기본 자동 재시도는 0회입니다. `page_token`에 따른 연속 조회는 필요한 페이지 처리이며 일반 실패 재시도가 아닙니다. `maxPages`는 조회할 최대 페이지 수입니다.
 
 원문 HTTP 오류, 자유 형식 예외 메시지, cursor, 원격 부가 메타데이터는 반환하거나 로그로 남기지 않습니다. API 열쇠나 인증 header를 요구하지 않습니다.
 

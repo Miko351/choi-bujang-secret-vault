@@ -1,5 +1,3 @@
-// 이 파일은 학생이 같은 프로젝트에서 이어서 구현합니다.
-// 제공 UI를 받은 것만으로 단계 완료를 인정하지 않습니다.
 export function createStudentView({ api, onChange } = {}) {
   // 관제 데이터는 이 페이지의 메모리에만 둔다. 기존 인증·판정 입력과 합치지 않는다.
   const pc = {status: 'idle', data: null, message: '', auto: false, example: false, filter: 'all', history: [], samples: []};
@@ -67,7 +65,7 @@ export function createStudentView({ api, onChange } = {}) {
   };
   const notify = focusKey => {
     if (disposed) return;
-    // 다시 그리기 직전 학생 영역의 초점만 기억한다. 다른 영역으로 이동한 초점은 가져오지 않는다.
+    // 다시 그리기 직전 관제 영역의 초점만 기억한다. 다른 영역으로 이동한 초점은 가져오지 않는다.
     const previous = document.activeElement;
     const restoreKey = previous?.getAttribute?.('data-dashboard-control') || focusKey;
     if (typeof onChange === 'function') onChange();

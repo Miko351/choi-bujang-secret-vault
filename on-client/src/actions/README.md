@@ -1,6 +1,6 @@
 # 케셰브 조치 모듈 — 로컬 준비
 
-`createActionService`는 기존 애플리케이션 SQLite 경로와 서버 소유 신원·조치 엔진 hook을 명시적으로 받아 prepare/execute/readResult를 제공한다. 로컬 HTTP와 PC의 사람 확인·결과 조회 화면에 연결했고 독립 검수했다. 기본 실행은 조치 미지원이며 실제 원천 권한·공식19단계 완료를 부여하지 않는다. AI service는 이 모듈을 호출하지 않는다.
+`createActionService`는 기존 애플리케이션 SQLite 경로와 서버 소유 신원·조치 엔진 hook을 명시적으로 받아 prepare/execute/readResult를 제공한다. 로컬 HTTP와 PC의 사람 확인·결과 조회 화면에 연결했고 독립 검수했다. 기본 실행은 조치 미지원이며 실제 원천 권한을 부여하지 않는다. AI service는 이 모듈을 호출하지 않는다.
 
 ```js
 createActionService({engine, resolveContext, databasePath, policy, clock})
@@ -9,9 +9,9 @@ service.execute({requestId,confirmationId},{signal})
 service.readResult({requestId},{signal})
 ```
 
-databasePath는 이미 존재하는 절대 경로의 단일 일반 SQLite 파일이어야 한다. symlink·hardlink·없는 파일·상대 경로는 거절한다. 새 DB를 생성하지 않고 supplied application DB에 `alekov_action_intents/state/audit`만 추가한다. 초기 정책·resolver·readEvents/authorizeAction/executeAction/readActionResult가 없으면 파일을 열지 않고 `ACTION_UNSUPPORTED`다. 기존 학생 사건·승인·감사 테이블을 읽거나 수정하지 않는다.
+databasePath는 이미 존재하는 절대 경로의 단일 일반 SQLite 파일이어야 한다. symlink·hardlink·없는 파일·상대 경로는 거절한다. 새 DB를 생성하지 않고 supplied application DB에 `alekov_action_intents/state/audit`만 추가한다. 초기 정책·resolver·readEvents/authorizeAction/executeAction/readActionResult가 없으면 파일을 열지 않고 `ACTION_UNSUPPORTED`다. 기존 사용자 사건·승인·감사 테이블을 읽거나 수정하지 않는다.
 
-policy의 정확한 필드는 `appId:'aleph-on'`, `audience:'on-client'`, `accessPolicyId`, 중복 없는 `allowedActions`, 양의 안전한 정수 `confirmationTtlMs`, 선택적 `timeoutMs`다. timeout 기본은 10,000ms다. 여분 정책 필드는 설정으로 인정하지 않는다. 설정한 기간은 학습 권장 기한·감점 정책이 아니다.
+policy의 정확한 필드는 `appId:'aleph-on'`, `audience:'on-client'`, `accessPolicyId`, 중복 없는 `allowedActions`, 양의 안전한 정수 `confirmationTtlMs`, 선택적 `timeoutMs`다. timeout 기본은 10,000ms다. 여분 정책 필드는 설정으로 인정하지 않는다. `confirmationTtlMs`는 조치 확인의 유효 기간이다.
 
 resolveContext({signal})는 현재 서버가 검증한 **정확한 아홉 필드**를 반환한다.
 
@@ -30,7 +30,7 @@ authorizeAction(command,scope,{signal})의 응답은 다음 정확한 형태다.
 {allowed:boolean,durableOperations:boolean,context:scope,eventId,actionId,target,snapshotDigest}
 ```
 
-context/event/action/target/digest가 command와 같고 allowed/durableOperations가 모두 true여야 한다. 단순 true, supportedActions 목록, 요청 body의 approved 값은 권한이 아니다. source가 인증한 현재 principal·target·action·정책 세대를 대조하는 hook이어야 한다. 실제 학생을 operator로 승격하거나 관리자 토큰으로 연결하지 않는다.
+context/event/action/target/digest가 command와 같고 allowed/durableOperations가 모두 true여야 한다. 단순 true, supportedActions 목록, 요청 body의 approved 값은 권한이 아니다. source가 인증한 현재 principal·target·action·정책 세대를 대조하는 hook이어야 한다. 일반 사용자를 operator로 승격하거나 관리자 토큰으로 연결하지 않는다.
 
 executeAction에는 깊게 고정한 서버 명령 `{requestId,fingerprint,scope,eventId,actionId,target,snapshotDigest}`를 전달한다. prepare가 생성한 requestId는 logical operation UUID이며 HTTP 추적 ID가 아니다. 사람 확인 티켓은 `ac-on-` + 고엔트로피 43자이며 prepare 응답에 한 번만 반환한다. DB에는 도메인을 분리한 SHA-256만 저장한다. execute는 서버가 UI의 별도 사람 확인 동작을 인증·Origin 보호한 뒤 호출해야 한다. 티켓 소지만으로 HTTP principal이나 사용자 권한이 생기지 않는다. 이 모듈만으로 브라우저 사람 확인 UI·CSRF 보호가 구현됐다고 주장하지 않는다.
 
@@ -52,10 +52,10 @@ intent와 audit UPDATE/DELETE, projection DELETE를 trigger로 거절한다. pro
 
 dispatch 이후 cancel/timeout/응답 손실은 unknown이다. 늦게 실제 효과가 생길 수 있으며 취소했다고 효과 없음으로 단정하지 않는다. 재시작이나 다른 service instance에서 reserved/pending을 재전송하면 unknown으로 reconcile하고 결과 조회만 한다. constructor와 readResult는 자동 집행하지 않는다. 완전한 exactly-once는 원천 엔진의 durable key/result 계약까지 필요하며 localExecutor의 apply 자체는 이를 제공하지 않는다.
 
-시험은 같은 checkout의 실제 `createLocalExecutor`를 격리된 기존 애플리케이션 SQLite의 test-only KV·operation wrapper에 연결해 실제 차단 효과를 관측한다. 이는 실제 제공 집행기의 로컬 효과 증거다. synthetic context/authority/durable wrapper는 production adapter나 실제 학생 권한의 증거가 아니다. memory-only fallback·admin token·공급사·운영 DB를 사용하지 않는다.
+시험은 같은 checkout의 실제 `createLocalExecutor`를 격리된 기존 애플리케이션 SQLite의 test-only KV·operation wrapper에 연결해 실제 차단 효과를 관측한다. 이는 실제 제공 집행기의 로컬 효과 증거다. synthetic context/authority/durable wrapper는 production adapter나 실제 사용자 권한의 증거가 아니다. memory-only fallback·admin token·공급사·운영 DB를 사용하지 않는다.
 
 대표 오류 코드는 ACTION_UNSUPPORTED/INPUT_INVALID/SCOPE_UNVERIFIED/SCOPE_CHANGED/EVENT_UNAVAILABLE/DENIED/SNAPSHOT_CHANGED/CONFIRMATION_INVALID/CONFIRMATION_EXPIRED/STORE_FAILED/TIMEOUT/CANCELLED/RESULT_UNVERIFIED다. 원문 source 오류·credential·stack·engine의 추가 필드는 응답에 내보내지 않는다.
 
-로컬 source 수정만 되돌릴 수 있다. 실제 적용 전에는 dispatch를 비활성화하고 unknown을 reconcile하는 운영 절차가 별도로 필요하다. DB의 action·학생 기록을 DROP/과거 복원하거나 자동 재집행하지 않는다. root가 별도 HTTP/UI·독립 Sol 검수·실제 원천을 확인한 뒤 다음 배치를 결정한다.
+로컬 source 수정만 되돌릴 수 있다. 실제 적용 전에는 dispatch를 비활성화하고 unknown을 reconcile하는 운영 절차가 별도로 필요하다. DB의 action·사용자 기록을 DROP/과거 복원하거나 자동 재집행하지 않는다. 별도 HTTP/UI 점검·독립 검수·실제 원천을 확인한 뒤 다음 배치를 결정한다.
 
 수행 설정: GPT-6.1 Sol / 요청 High, 내부 실제 effort 독립 관측 없음. 검수: root + 별도 Sol. Astra 추가 호출 0.
